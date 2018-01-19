@@ -1,0 +1,9 @@
+<Configuration>
+	<Name>Atlas Library</Name>
+	<Author>Atlas Systems, Inc.</Author>
+	<Version>1.1</Version>
+	<Active>false</Active>
+	<Type>Library</Type>
+
+	<Description>Contains helper methods for use with user addons.</Description>
+</Configuration>

@@ -1,0 +1,35 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Configuration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <Name>ArchivesSpace Interface</Name>
+  <Author>Atlas Systems, Inc.</Author>
+  <Version>1.3.0</Version>
+  <Active>True</Active>
+  <Type>Addon</Type>
+  <Description>This addon performs searches in ArchivesSpace using the staff interface. This addon supports ArchivesSpace versions v2.0.0 and later.</Description>
+  <Forms>
+    <Form>FormRequest</Form>
+  </Forms>
+  <Settings>
+    <Setting name="AutoSearch" value="true" type="boolean">
+      <Description>Defines whether the search should be automatically performed when the form opens.</Description>
+    </Setting>
+    <Setting name="ArchivesSpaceStaffURL" value="" type="string">
+      <Description>The URL of the ArchivesSpace Frontend Staff UI. An example would be http://127.0.0.1:8080/</Description>
+    </Setting>
+    <Setting name="ArchivesSpaceBackendURL" value="" type="string">
+      <Description>The URL of the ArchviesSpace Backend API service. An example would be http://127.0.0.1:8089/</Description>
+    </Setting>
+    <Setting name="AS_Username" value="" type="string">
+      <Description>The staff username to use when logging in to the web interface. It is recommended to use an account that has read-only permissions on the relevant repositories.</Description>
+    </Setting>
+    <Setting name="AS_Password" value="" type="string">
+      <Description>The staff password to use when logging in to the web interface. It is recommended to use an account that has read-only permissions on the relevant repositories.</Description>
+    </Setting>
+    <Setting name="AutoSearchPriority" value="Title, Author, CallNumber" type="string">
+			<Description>A comma-separated list of searches to be performed in order.</Description>
+		</Setting>
+  </Settings>
+  <Files>
+    <File>Aeon-ArchivesSpace.lua</File>
+  </Files>
+</Configuration>

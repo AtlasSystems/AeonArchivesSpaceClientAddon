@@ -1,0 +1,16 @@
+<Configuration>
+	<Name>JsonParser</Name>
+	<Author>Atlas Systems, Inc.</Author>
+	<Version>1.0.0</Version>
+	<Active>true</Active>
+	<Type>Library</Type>
+
+	<Description>Parses a JSON string into a Lua table using Newtonsoft JSON .NET functionality.</Description>
+
+	<Forms />
+	<Settings />
+	
+	<Files>
+		<File>JsonParser.lua</File>
+	</Files>
+</Configuration>
