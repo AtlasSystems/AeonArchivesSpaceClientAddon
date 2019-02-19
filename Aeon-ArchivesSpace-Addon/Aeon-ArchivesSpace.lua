@@ -375,7 +375,7 @@ function PopulateDataGrid()
             local availableData = {};
             availableData["ArchivalObjectTitle"] = ExtractProperty(archivalObject, "title");
             availableData["ResourceTitle"] = ExtractProperty(collection, "title");
-            availableData["EadId"] = ExtractProperty(collection,"ead_id");
+            availableData["EadId"] = ExtractResourceIdentifier(collection);
             availableData["Creators"] = ExtractCreators(sessionId, collection);
 
             catalogSearchForm.Grid.GridControl:BeginUpdate();
@@ -456,13 +456,35 @@ function ImportCitation_Clicked()
     SwitchToDetailsTab();
 end
 
+function ExtractResourceIdentifier(collection)
+    local identifier = ''
+
+    local id_components = {
+        ExtractProperty(collection, 'id_0'),
+        ExtractProperty(collection, 'id_1'),
+        ExtractProperty(collection, 'id_2'),
+        ExtractProperty(collection, 'id_3'),
+    };
+
+    for _, value in ipairs(id_components) do
+        if value and value ~= '' then
+            identifier = identifier .. value .. '-';
+        end
+    end
+
+    -- Strips ending whitespace and dashes
+    identifier = identifier:match('^(.*[^%s-])[-%s]*$')
+
+    return identifier
+end
+
 function ExtractResourceCitation(sessionId, json)
     local availableData = {};
     availableData["Title"] = ExtractProperty(json, "title");
     availableData["Creators"] = ExtractCreators(sessionId, json);
     availableData["CreatedBy"] = ExtractProperty(json, "created_by");
     availableData["FindingAidTitle"] = ExtractProperty(json, "finding_aid_title");
-    availableData["EadId"] = ExtractProperty(json, "ead_id");
+    availableData["EadId"] = ExtractResourceIdentifier(json);
     local dates = ExtractProperty(json, "dates");
     availableData["DateExpression"] = ExtractProperty(dates[1], "expression");
 
@@ -475,6 +497,7 @@ function ExtractAccessionCitation(sessionId, json)
     availableData["DisplayString"] = ExtractProperty(json, "display_string");
     availableData["AccessionDate"] = ExtractProperty(json, "accession_date");
     availableData["CreatedBy"] = ExtractProperty(json, "created_by");
+    availableData["EadId"] = ExtractResourceIdentifier(json);
     local dates = ExtractProperty(json, "dates");
     availableData["DateExpression"] = ExtractProperty(dates[1], "expression");
 

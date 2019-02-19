@@ -81,7 +81,10 @@ HostAppInfo.CitationDataImport["Resource"] = {
   },
   {
     AeonField = "ItemDate", AspaceData = "DateExpression", FieldLength = 50
-  }
+  },
+  {
+    AeonField = "CallNumber", AspaceData = "EadId", FieldLength = 255
+  },
 }
 
 HostAppInfo.CitationDataImport["Accession"] = {
@@ -93,7 +96,10 @@ HostAppInfo.CitationDataImport["Accession"] = {
   },
   {
     AeonField = "ItemDate", AspaceData = "DateExpression", FieldLength = 50
-  }
+  },
+  {
+    AeonField = "CallNumber", AspaceData = "EadId", FieldLength = 255
+  },
 }
 
 HostAppInfo.CitationDataImport["DigitalObject"] = {

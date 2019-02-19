@@ -72,13 +72,13 @@ InstanceDataImport establishes the mapping between an Aeon field and data from A
 
 #### Available ArchivesSpace Data- *Archival Object*
 
-| Data Mapping Name       | Description                                                                               | ArchivesSpace API Property                    |
-|-------------------------|-------------------------------------------------------------------------------------------|-----------------------------------------------|
-| ArchivalObjectTitle     | The title of the archival object                                                          | archival_objects > title                      |
-| ResourceTitle           | The title of the resource that the archival object belongs to                             | resources > title                             |
-| EadId                   | The resource's EAD ID                                                                     | resources > ead_id                            |
+| Data Mapping Name       | Description                                                                              | ArchivesSpace API Property                    |
+| ----------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------- |
+| ArchivalObjectTitle     | The title of the archival object                                                         | archival_objects > title                      |
+| ResourceTitle           | The title of the resource that the archival object belongs to                            | resources > title                             |
+| EadId                   | The resource's composite identifier                                                      | resources > (id_0, id_1, id_2, id_3)          |
 | Creators                | The primary names of the creators associated with the archival object delimited by a `;` | agents > people > display_name > primary_name |
-| ArchivalObjectContainer | The display string of the archival object's top container                                 | top_containers > long_display_string          |
+| ArchivalObjectContainer | The display string of the archival object's top container                                | top_containers > long_display_string          |
 
 >**Important:** Do **not** modify the `HostAppInfo.InstanceDataImport` table name (E.G. *HostAppInfo.InstanceDataImport[{**Table Name**}]*). The addon uses the table name to find the information. The data within the table, however, is designed to be customized.
 
@@ -86,33 +86,34 @@ InstanceDataImport establishes the mapping between an Aeon field and data from A
 Citation data can be imported when a specific instance of an object can't be imported or isn't supported yet. The citation data can be imported for `Resources`, `Accessions`, and `Digital Objects`. Each citation data type has its own mappings.
 
 #### Available ArchivesSpace Data- *Resources*
-| Data Mapping Name | Description                                                                               | ArchivesSpace API Property                    |
-|-------------------|-------------------------------------------------------------------------------------------|-----------------------------------------------|
-| Title             | The title of the resource                                                                 | resources > title                             |
-| FindingAidTitle   | The title of the resource that the archival object belongs to                             | resources > finding_aid_title                 |
-| DateExpression    | The date expression of the resource                                                       | resources > dates > date_expression           |
-| Creators          | The primary names, delimited by a `;`, of the creators associated with the resource  | agents > people > display_name > primary_name |
-| CreatedBy         | The user that created the record                                                          | resources > created_by                        |
-| EadId             | The EAD ID of the resource                                                                | resources > ead_id                            |
+| Data Mapping Name | Description                                                                         | ArchivesSpace API Property                    |
+| ----------------- | ----------------------------------------------------------------------------------- | --------------------------------------------- |
+| Title             | The title of the resource                                                           | resources > title                             |
+| FindingAidTitle   | The title of the resource that the archival object belongs to                       | resources > finding_aid_title                 |
+| DateExpression    | The date expression of the resource                                                 | resources > dates > date_expression           |
+| Creators          | The primary names, delimited by a `;`, of the creators associated with the resource | agents > people > display_name > primary_name |
+| CreatedBy         | The user that created the record                                                    | resources > created_by                        |
+| EadId             | The composite identifier of the resource                                            | resources > (id_0, id_1, id_2, id_3)          |
 
 #### Available ArchivesSpace Data- *Accessions*
-| Data Mapping Name | Description                                 | ArchivesSpace API Property           |
-|-------------------|---------------------------------------------|--------------------------------------|
-| Title             | The title of the accession                  | accessions > title                   |
-| DisplayString     | The display string of the accession record  | accessions > display_string          |
-| DateExpression    | The date expression of the accession record | accessions > dates > date_expression |
-| CreatedBy         | The user that created the record            | accessions > created_by              |
-| AccessionDate     | The date the accession was created          | accessions > accession_date          |
+| Data Mapping Name | Description                                 | ArchivesSpace API Property            |
+| ----------------- | ------------------------------------------- | ------------------------------------- |
+| Title             | The title of the accession                  | accessions > title                    |
+| DisplayString     | The display string of the accession record  | accessions > display_string           |
+| DateExpression    | The date expression of the accession record | accessions > dates > date_expression  |
+| CreatedBy         | The user that created the record            | accessions > created_by               |
+| AccessionDate     | The date the accession was created          | accessions > accession_date           |
+| EadId             | The composite identifier of the accession   | accessions > (id_0, id_1, id_2, id_3) |
 
 #### Available ArchivesSpace Data- *Digital Objects*
-| Data Mapping Name | Description                                                                            | ArchivesSpace API Property                    |
-|-------------------|----------------------------------------------------------------------------------------|-----------------------------------------------|
-| Title             | The title of the digital object                                                             | digital_objects > title                       |
-| DateExpression    | The date expression of the digital object                                              | digital_objects > dates > date_expression     |
-| CreatedBy         | The user that created the record                                                       | digital_objects > created_by                  |
-| FileUri           | The URI to the digital object's file                                              | digital_objects > file_uri                    |
+| Data Mapping Name | Description                                                                               | ArchivesSpace API Property                    |
+| ----------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------- |
+| Title             | The title of the digital object                                                           | digital_objects > title                       |
+| DateExpression    | The date expression of the digital object                                                 | digital_objects > dates > date_expression     |
+| CreatedBy         | The user that created the record                                                          | digital_objects > created_by                  |
+| FileUri           | The URI to the digital object's file                                                      | digital_objects > file_uri                    |
 | Creators          | The primary names, delimited by a `;`, of the creators associated with the digital object | agents > people > display_name > primary_name |
-| DigitalObjectId   | The ID of the digital object                                                           | digital_objects > digital_object_id           |
+| DigitalObjectId   | The ID of the digital object                                                              | digital_objects > digital_object_id           |
 
 ### PageUri
 The PageUri mapping is the pattern that identifies the page type the addon is currently on. These are not likely to change from site to site, but can be adjusted if necessary.
