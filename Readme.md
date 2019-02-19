@@ -3,6 +3,8 @@
 ## Version
 - 1.3: Added support for importing citation data for Resources, Digital Objects, and Accessions. Added ability to import specific instance information for Archival Objects. The fields can be customized in the DataMapping.lua file.
 
+- 1.4: Added support for pulling identifiers from the composite ID string (`id_0` .. `id_N`), instead of relying on the `ead_id` field.
+
 ## Summary
 This addon is used to integrate the ArchivesSpace staff interface into the Aeon Client request form so that staff can search the records of their ArchivesSpace instance and import details into Aeon requests.
 
