@@ -393,11 +393,13 @@ function PopulateDataGrid()
                 local itemRow = itemsDataTable:NewRow();
                 local topContainer = GetTopContainerFromAPI(sessionId, v)
                 availableData["ArchivalObjectContainer"] = ExtractArchivalObjectContainer(v, topContainer);
+                availableData["ArchivalObjectContainerBarcode"] = ExtractArchivalObjectContainerBarcode(topContainer);
                 itemRow:set_item(mapping["Title"].ItemGridColumn, availableData[mapping["Title"].AspaceData]);
                 itemRow:set_item(mapping["SubTitle"].ItemGridColumn, availableData[mapping["SubTitle"].AspaceData]);
                 itemRow:set_item(mapping["CallNumber"].ItemGridColumn, availableData[mapping["CallNumber"].AspaceData]);
                 itemRow:set_item(mapping["Author"].ItemGridColumn, availableData[mapping["Author"].AspaceData]);
                 itemRow:set_item(mapping["Volume"].ItemGridColumn, availableData[mapping["Volume"].AspaceData]);
+                itemRow:set_item(mapping["Barcode"].ItemGridColumn, availableData[mapping["Barcode"].AspaceData]);
                 itemsDataTable.Rows:Add(itemRow);
             end
 
@@ -530,6 +532,16 @@ function ExtractArchivalObjectContainer(archivalObjectInstance, topContainer)
     end
 
     return container;
+end
+
+function ExtractArchivalObjectContainerBarcode(topContainer)
+    local barcode = "";
+
+    if topContainer and topContainer.barcode then
+        barcode = topContainer.barcode;
+    end
+
+    return barcode;
 end
 
 function ExtractProperty(object, propery)
