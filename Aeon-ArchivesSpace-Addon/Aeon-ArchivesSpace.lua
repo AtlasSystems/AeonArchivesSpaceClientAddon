@@ -231,6 +231,14 @@ function BuildItemsGrid()
     gridColumn.OptionsColumn.ReadOnly = true;
     gridColumn.Width = 50;
 
+    gridColumn = gridView.Columns:Add();
+    gridColumn.Caption = "Barcode";
+    gridColumn.FieldName = "Barcode";
+    gridColumn.Name = "gridColumnBarcode";
+    gridColumn.Visible = true;
+    gridColumn.OptionsColumn.ReadOnly = true;
+    gridColumn.Width = 50;
+
     catalogSearchForm.Grid.GridControl.DataSource = CreateItemsTable();
 
     gridControl:EndUpdate();
@@ -245,6 +253,7 @@ function CreateItemsTable()
     itemsTable.Columns:Add("CallNumber");
     itemsTable.Columns:Add("Author");
     itemsTable.Columns:Add("Volume");
+    itemsTable.Columns:Add("Barcode");
 
     return itemsTable;
 end
@@ -382,12 +391,15 @@ function PopulateDataGrid()
 
             for _, v in ipairs(archivalObject.instances) do
                 local itemRow = itemsDataTable:NewRow();
-                availableData["ArchivalObjectContainer"] = ExtractArchivalObjectContainer(sessionId, v);
+                local topContainer = GetTopContainerFromAPI(sessionId, v)
+                availableData["ArchivalObjectContainer"] = ExtractArchivalObjectContainer(v, topContainer);
+                availableData["ArchivalObjectContainerBarcode"] = ExtractArchivalObjectContainerBarcode(topContainer);
                 itemRow:set_item(mapping["Title"].ItemGridColumn, availableData[mapping["Title"].AspaceData]);
                 itemRow:set_item(mapping["SubTitle"].ItemGridColumn, availableData[mapping["SubTitle"].AspaceData]);
                 itemRow:set_item(mapping["CallNumber"].ItemGridColumn, availableData[mapping["CallNumber"].AspaceData]);
                 itemRow:set_item(mapping["Author"].ItemGridColumn, availableData[mapping["Author"].AspaceData]);
                 itemRow:set_item(mapping["Volume"].ItemGridColumn, availableData[mapping["Volume"].AspaceData]);
+                itemRow:set_item(mapping["Barcode"].ItemGridColumn, availableData[mapping["Barcode"].AspaceData]);
                 itemsDataTable.Rows:Add(itemRow);
             end
 
@@ -494,7 +506,17 @@ function ExtractDigitalObjectCitation(sessionId, json)
     return availableData;
 end
 
-function ExtractArchivalObjectContainer(sessionId, archivalObjectInstance)
+function GetTopContainerFromAPI(sessionId, archivalObjectInstance)
+    if (archivalObjectInstance.sub_container ~= nil and archivalObjectInstance.sub_container ~= JsonParser.NIL) then
+        local topContainerUri = archivalObjectInstance.sub_container.top_container.ref;
+        local topContainer = ArchivesSpaceGetRequest(sessionId, topContainerUri);
+        return topContainer
+    end
+
+    return nil
+end
+
+function ExtractArchivalObjectContainer(archivalObjectInstance, topContainer)
     local container = "";
 
     if (archivalObjectInstance.container ~= nil and archivalObjectInstance.container ~= JsonParser.NIL) then
@@ -505,13 +527,21 @@ function ExtractArchivalObjectContainer(sessionId, archivalObjectInstance)
         if (archivalObjectInstance.container.type_2 ~= nil and archivalObjectInstance.container.type_2 ~= JsonParser.NIL) then
             container = container .. ', ' .. archivalObjectInstance.container.type_2 .. " " .. archivalObjectInstance.container.indicator_2;
         end
-    elseif(archivalObjectInstance.sub_container ~= nil and archivalObjectInstance.sub_container ~= JsonParser.NIL) then
-        local topContainerUri = archivalObjectInstance.sub_container.top_container.ref;
-        local topContainer = ArchivesSpaceGetRequest(sessionId, topContainerUri);
+    elseif (topContainer) then
         container = topContainer.long_display_string;
     end
 
     return container;
+end
+
+function ExtractArchivalObjectContainerBarcode(topContainer)
+    local barcode = "";
+
+    if topContainer and topContainer.barcode then
+        barcode = topContainer.barcode;
+    end
+
+    return barcode;
 end
 
 function ExtractProperty(object, propery)
