@@ -231,6 +231,14 @@ function BuildItemsGrid()
     gridColumn.OptionsColumn.ReadOnly = true;
     gridColumn.Width = 50;
 
+    gridColumn = gridView.Columns:Add();
+    gridColumn.Caption = "Barcode";
+    gridColumn.FieldName = "Barcode";
+    gridColumn.Name = "gridColumnBarcode";
+    gridColumn.Visible = true;
+    gridColumn.OptionsColumn.ReadOnly = true;
+    gridColumn.Width = 50;
+
     catalogSearchForm.Grid.GridControl.DataSource = CreateItemsTable();
 
     gridControl:EndUpdate();
@@ -245,6 +253,7 @@ function CreateItemsTable()
     itemsTable.Columns:Add("CallNumber");
     itemsTable.Columns:Add("Author");
     itemsTable.Columns:Add("Volume");
+    itemsTable.Columns:Add("Barcode");
 
     return itemsTable;
 end
