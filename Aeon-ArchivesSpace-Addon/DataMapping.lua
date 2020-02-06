@@ -70,6 +70,11 @@ HostAppInfo.InstanceDataImport["Barcode"] =
   AeonField = "ItemNumber", AspaceData = "ArchivalObjectContainerBarcode", FieldLength = 50, ItemGridColumn = "Barcode"
 }
 
+HostAppInfo.InstanceDataImport["Location"] =
+{
+  AeonField = "Location", AspaceData = "ArchivalObjectContainerLocation", FieldLength = 255, ItemGridColumn = "Location"
+}
+
 -- Resource Citation Import Mapping
 HostAppInfo.CitationDataImport = {}
 
