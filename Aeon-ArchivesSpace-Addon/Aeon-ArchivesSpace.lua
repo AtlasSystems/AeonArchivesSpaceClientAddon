@@ -380,52 +380,61 @@ end
 function PopulateDataGrid()
     local itemsDataTable = CreateItemsTable();
     LogDebug("Current Resource URI: " .. currentResourceUri);
-    if(string.match(currentResourceUri, HostAppInfo.PageUri["ArchivalObject"])) then
+
+    if (string.match(currentResourceUri, HostAppInfo.PageUri["ArchivalObject"])) then
+
         local sessionId = GetSessionId();
         local archivalObject = GetArchivalObject(sessionId, currentResourceUri);
+        local collectionUri = ExtractSubproperty(archivalObject, "resource", "ref");
+        local collection = ArchivesSpaceGetRequest(sessionId, collectionUri);
 
-        if (archivalObject) and (archivalObject.instances ~= nil and archivalObject.instances ~= JsonParser.NIL) then
-            LogDebug("Is an instance of archival object");
-            local collectionUri = ExtractSubproperty(archivalObject, "resource", "ref");
-            local collection = ArchivesSpaceGetRequest(sessionId, collectionUri);
+        if archivalObject and archivalObject.instances and (archivalObject.instances ~= JsonParser.NIL) and (#archivalObject.instances > 0) then
+            LogDebug("Mapping Archival Object instances");
+            instances = archivalObject.instances;
+        elseif collection and collection.instances and (collection.instances ~= JsonParser.NIL) and (#collection.instances > 0) then
+            LogDebug("Archival Object has no instances. Mapping Resource instances.");
+            instances = collection.instances;
+        else
+            LogDebug("Neither the current Archival Object nor the current Resource have any instances.");
+            return;
+        end
 
-            local availableData = {};
-            availableData["ArchivalObjectTitle"] = ExtractProperty(archivalObject, "title");
-            availableData["ResourceTitle"] = ExtractProperty(collection, "title");
-            availableData["EadId"] = ExtractProperty(collection,"ead_id");
-            availableData["Creators"] = ExtractCreators(sessionId, collection);
+        local availableData = {};
+        availableData["ArchivalObjectTitle"] = ExtractProperty(archivalObject, "title");
+        availableData["ResourceTitle"] = ExtractProperty(collection, "title");
+        availableData["EadId"] = ExtractProperty(collection,"ead_id");
+        availableData["Creators"] = ExtractCreators(sessionId, collection);
 
-            catalogSearchForm.Grid.GridControl:BeginUpdate();
+        catalogSearchForm.Grid.GridControl:BeginUpdate();
 
-            for _, archivalObjectInstance in ipairs(archivalObject.instances) do
-                
-                local topContainer = GetTopContainerFromAPI(sessionId, archivalObjectInstance)
+        for _, archivalObjectInstance in ipairs(instances) do
+            
+            local topContainer = GetTopContainerFromAPI(sessionId, archivalObjectInstance)
 
-                availableData["ArchivalObjectContainer"] = ExtractArchivalObjectContainer(archivalObjectInstance, topContainer);
-                availableData["ArchivalObjectContainerBarcode"] = ExtractArchivalObjectContainerBarcode(topContainer);
-                
-                topContainerHasContainerLocations = (
-                    topContainer and
-                    topContainer.container_locations and
-                    topContainer.container_locations ~= JsonParser.NIL and
-                    (#topContainer.container_locations > 0)
-                )
+            availableData["ArchivalObjectContainer"] = ExtractArchivalObjectContainer(archivalObjectInstance, topContainer);
+            availableData["ArchivalObjectContainerBarcode"] = ExtractArchivalObjectContainerBarcode(topContainer);
+            
+            topContainerHasContainerLocations = (
+                topContainer and
+                topContainer.container_locations and
+                topContainer.container_locations ~= JsonParser.NIL and
+                (#topContainer.container_locations > 0)
+            )
 
-                if topContainerHasContainerLocations then
-                    for _, containerLocation in ipairs(topContainer.container_locations) do
-                        location = ArchivesSpaceGetRequest(sessionId, containerLocation.ref);
-                        availableData["ArchivalObjectContainerLocation"] = location.title;
-                        AddRowToItemsTable(itemsDataTable, availableData);
-                    end
-                else
-                    availableData["ArchivalObjectContainerLocation"] = "";
+            if topContainerHasContainerLocations then
+                for _, containerLocation in ipairs(topContainer.container_locations) do
+                    location = ArchivesSpaceGetRequest(sessionId, containerLocation.ref);
+                    availableData["ArchivalObjectContainerLocation"] = location.title;
                     AddRowToItemsTable(itemsDataTable, availableData);
                 end
+            else
+                availableData["ArchivalObjectContainerLocation"] = "";
+                AddRowToItemsTable(itemsDataTable, availableData);
             end
-
-            catalogSearchForm.Grid.GridControl.DataSource = itemsDataTable;
-            catalogSearchForm.Grid.GridControl:EndUpdate();
         end
+
+        catalogSearchForm.Grid.GridControl.DataSource = itemsDataTable;
+        catalogSearchForm.Grid.GridControl:EndUpdate();
     end
 end
 
