@@ -38,7 +38,7 @@ types["System.Drawing.Size"] = luanet.import_type("System.Drawing.Size");
 luanet.load_assembly("System.Data");
 types["System.Data.DataTable"] = luanet.import_type("System.Data.DataTable");
 
-local currentResourceUri = "";
+local currentRecordUri = "";
 
 local archiveSpaceAddonScript = [[
     function buildObjectUrl(currentTreeId) {
@@ -61,7 +61,7 @@ local archiveSpaceAddonScript = [[
         var archivesSpaceAddonInitialized = true;
         var currentRepositoryPath = /\/repositories\/(\d+)/.exec($(".repo-container > .btn-group > a[href*='/repositories/']")[0].href)[0];
 
-        //Sets the currentResourceUri
+        //Sets the currentRecordUri
         if (currentRepositoryPath) {
             // There is an information tree
             if (window.AjaxTree) {
@@ -339,17 +339,17 @@ end
 
 function NodeChanged(currentRepositoryPath, selectedResourcePath)
     ResetDataGrid();
-    currentResourceUri = PathCombine(currentRepositoryPath, selectedResourcePath);
-    LogDebug('currentResourceUri = ' .. currentResourceUri);
+    currentRecordUri = PathCombine(currentRepositoryPath, selectedResourcePath);
+    LogDebug('currentRecordUri = ' .. currentRecordUri);
 
     SetImportButtonsDisabled();
 end
 
 function SetCitationImportButtonsEnabled()
     if(
-        string.match(currentResourceUri, HostAppInfo.PageUri["Resource"]) or
-        string.match(currentResourceUri, HostAppInfo.PageUri["Accession"]) or
-        string.match(currentResourceUri, HostAppInfo.PageUri["DigitalObject"])
+        string.match(currentRecordUri, HostAppInfo.PageUri["Resource"]) or
+        string.match(currentRecordUri, HostAppInfo.PageUri["Accession"]) or
+        string.match(currentRecordUri, HostAppInfo.PageUri["DigitalObject"])
     ) then
         LogDebug("Resource- Setting Import Citation to True");
         catalogSearchForm.ImportCitationButton.BarButton.Enabled = true;
@@ -379,12 +379,12 @@ end
 
 function PopulateDataGrid()
     local itemsDataTable = CreateItemsTable();
-    LogDebug("Current Resource URI: " .. currentResourceUri);
+    LogDebug("Current Record URI: " .. currentRecordUri);
 
-    if (string.match(currentResourceUri, HostAppInfo.PageUri["ArchivalObject"])) then
+    if (string.match(currentRecordUri, HostAppInfo.PageUri["ArchivalObject"])) then
 
         local sessionId = GetSessionId();
-        local archivalObject = GetArchivalObject(sessionId, currentResourceUri);
+        local archivalObject = GetArchivalObject(sessionId, currentRecordUri);
         local collectionUri = ExtractSubproperty(archivalObject, "resource", "ref");
         local collection = ArchivesSpaceGetRequest(sessionId, collectionUri);
 
@@ -475,7 +475,7 @@ function ImportCitation_Clicked()
     SetImportButtonsDisabled();
 
     local sessionId = GetSessionId();
-    local collection = ArchivesSpaceGetRequest(sessionId, currentResourceUri);
+    local collection = ArchivesSpaceGetRequest(sessionId, currentRecordUri);
     local jsonModelType = ExtractProperty(collection, "jsonmodel_type");
     LogDebug("Json Model Type: ".. jsonModelType);
     local availableData = {};
