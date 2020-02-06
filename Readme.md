@@ -1,7 +1,16 @@
 # Aeon ArchivesSpace Client Addon
 
 ## Version
-- 1.3: Added support for importing citation data for Resources, Digital Objects, and Accessions. Added ability to import specific instance information for Archival Objects. The fields can be customized in the DataMapping.lua file.
+- 2.0:
+    - Added support for importing the barcode from an instance's Top Container.
+    - Added support for importing the titles from each Location that is linked
+      to an instance's Top container.
+    - Added support for pulling instance information from the Resource level if
+      the current Archival Object does not have any instances.
+- 1.3:
+    - Added support for importing citation data for Resources, Digital Objects, and Accessions.
+    - Added ability to import specific instance information for Archival Objects.
+    - The fields can be customized in the DataMapping.lua file.
 
 ## Summary
 This addon is used to integrate the ArchivesSpace staff interface into the Aeon Client request form so that staff can search the records of their ArchivesSpace instance and import details into Aeon requests.
