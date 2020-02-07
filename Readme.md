@@ -7,6 +7,9 @@
       to an instance's Top container.
     - Added support for pulling instance information from the Resource level if
       the current Archival Object does not have any instances.
+    - Added the `GroupResultsByVolume` setting, allowing users to opt-in to
+      automatically grouping the results grid by the top container display
+      string.
 - 1.3:
     - Added support for importing citation data for Resources, Digital Objects, and Accessions.
     - Added ability to import specific instance information for Archival Objects.

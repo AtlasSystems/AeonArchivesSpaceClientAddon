@@ -20,6 +20,7 @@ settings.ApiBaseURL = GetSetting("ArchivesSpaceBackendURL");
 settings.Username = GetSetting("AS_Username");
 settings.Password = GetSetting("AS_Password");
 settings.AutoSearchPriority = GetSetting("AutoSearchPriority");
+settings.AutoGroupResults = GetSetting("AutoGroupResults");
 
 local types = {};
 
@@ -39,6 +40,8 @@ luanet.load_assembly("System.Data");
 types["System.Data.DataTable"] = luanet.import_type("System.Data.DataTable");
 
 local currentRecordUri = "";
+
+local gridColumns = {};
 
 local archiveSpaceAddonScript = [[
     function buildObjectUrl(currentTreeId) {
@@ -198,6 +201,7 @@ function BuildItemsGrid()
     gridColumn.Visible = true;
     gridColumn.OptionsColumn.ReadOnly = true;
     gridColumn.Width = 50;
+    gridColumns["Title"] = gridColumn;
 
     gridColumn = gridView.Columns:Add();
     gridColumn.Caption = "SubTitle";
@@ -206,6 +210,7 @@ function BuildItemsGrid()
     gridColumn.Visible = true;
     gridColumn.OptionsColumn.ReadOnly = true;
     gridColumn.Width = 50;
+    gridColumns["SubTitle"] = gridColumn;
 
     gridColumn = gridView.Columns:Add();
     gridColumn.Caption = "Call Number";
@@ -214,6 +219,7 @@ function BuildItemsGrid()
     gridColumn.Visible = true;
     gridColumn.OptionsColumn.ReadOnly = true;
     gridColumn.Width = 50;
+    gridColumns["Call Number"] = gridColumn;
 
     gridColumn = gridView.Columns:Add();
     gridColumn.Caption = "Author";
@@ -222,6 +228,7 @@ function BuildItemsGrid()
     gridColumn.Visible = true;
     gridColumn.OptionsColumn.ReadOnly = true;
     gridColumn.Width = 50;
+    gridColumns["Author"] = gridColumn;
 
     gridColumn = gridView.Columns:Add();
     gridColumn.Caption = "Volume";
@@ -230,6 +237,7 @@ function BuildItemsGrid()
     gridColumn.Visible = true;
     gridColumn.OptionsColumn.ReadOnly = true;
     gridColumn.Width = 50;
+    gridColumns["Volume"] = gridColumn;
 
     gridColumn = gridView.Columns:Add();
     gridColumn.Caption = "Barcode";
@@ -238,6 +246,7 @@ function BuildItemsGrid()
     gridColumn.Visible = true;
     gridColumn.OptionsColumn.ReadOnly = true;
     gridColumn.Width = 50;
+    gridColumns["Barcode"] = gridColumn;
 
     gridColumn = gridView.Columns:Add();
     gridColumn.Caption = "Location";
@@ -246,6 +255,7 @@ function BuildItemsGrid()
     gridColumn.Visible = true;
     gridColumn.OptionsColumn.ReadOnly = true;
     gridColumn.Width = 50;
+    gridColumns["Location"] = gridColumn;
 
     catalogSearchForm.Grid.GridControl.DataSource = CreateItemsTable();
 
@@ -378,7 +388,6 @@ function ResetDataGrid()
 end
 
 function PopulateDataGrid()
-    local itemsDataTable = CreateItemsTable();
     LogDebug("Current Record URI: " .. currentRecordUri);
 
     if (string.match(currentRecordUri, HostAppInfo.PageUri["ArchivalObject"])) then
@@ -404,6 +413,8 @@ function PopulateDataGrid()
         availableData["ResourceTitle"] = ExtractProperty(collection, "title");
         availableData["EadId"] = ExtractProperty(collection,"ead_id");
         availableData["Creators"] = ExtractCreators(sessionId, collection);
+
+        local itemsDataTable = CreateItemsTable();
 
         catalogSearchForm.Grid.GridControl:BeginUpdate();
 
@@ -435,6 +446,11 @@ function PopulateDataGrid()
 
         catalogSearchForm.Grid.GridControl.DataSource = itemsDataTable;
         catalogSearchForm.Grid.GridControl:EndUpdate();
+
+        catalogSearchForm.Grid.GridControl.Enabled = true;
+        if settings.AutoGroupResults then
+            gridColumns["Volume"]:Group();
+        end
     end
 end
 
