@@ -7,9 +7,11 @@
       to an instance's Top container.
     - Added support for pulling instance information from the Resource level if
       the current Archival Object does not have any instances.
-    - Added the `GroupResultsByVolume` setting, allowing users to opt-in to
-      automatically grouping the results grid by the top container display
-      string.
+    - Added the `AutoGroupResults` setting, allowing users to opt-in to
+      automatically grouping the results grid by the "Volume" column, which
+      refers to either the instance's top container display string or the
+      instance's digital object title, depending on the instance type.
+    - Added support for pulling in information from digital object instances.
 - 1.3:
     - Added support for importing citation data for Resources, Digital Objects, and Accessions.
     - Added ability to import specific instance information for Archival Objects.
@@ -57,6 +59,12 @@ A comma-separated list of searches to be performed in order.
 
 *Available Search Types:* Title, Author, CallNumber
 
+### AutoGroupResults
+
+Specifies whether the results grid should be grouped automatically. The table
+will be grouped by the "Volume" column, which refers to either the instance's
+top container display string or digital object title.
+
 ## Data Mapping
 The `DataMapping.lua` file contains mappings that can be modified in order to fine-tune the addon to a particular instanance of ArchivesSpace. Examples of mapping includes adjusting the ArchivesSpace search types to specific Aeon fields, the mapping between Aeon fields and the different ArchivesSpace object types, and the patterns used to identify the types of pages the user is on.
 
@@ -84,13 +92,15 @@ InstanceDataImport establishes the mapping between an Aeon field and data from A
 
 #### Available ArchivesSpace Data- *Archival Object*
 
-| Data Mapping Name       | Description                                                                               | ArchivesSpace API Property                    |
-|-------------------------|-------------------------------------------------------------------------------------------|-----------------------------------------------|
-| ArchivalObjectTitle     | The title of the archival object                                                          | archival_objects > title                      |
-| ResourceTitle           | The title of the resource that the archival object belongs to                             | resources > title                             |
-| EadId                   | The resource's EAD ID                                                                     | resources > ead_id                            |
-| Creators                | The primary names of the creators associated with the archival object delimited by a `;` | agents > people > display_name > primary_name |
-| ArchivalObjectContainer | The display string of the archival object's top container                                 | top_containers > long_display_string          |
+| Data Mapping Name               | Description                                                                               | ArchivesSpace API Property                                          |
+|---------------------------------|-------------------------------------------------------------------------------------------|---------------------------------------------------------------------|
+| ArchivalObjectTitle             | The title of the archival object                                                          | `archival_objects > title`                                          |
+| ResourceTitle                   | The title of the resource that the archival object belongs to                             | `resources > title`                                                 |
+| EadId                           | The resource's EAD ID                                                                     | `resources > ead_id`                                                |
+| Creators                        | The primary names of the creators associated with the archival object delimited by a `;`  | `agents > people > display_name > primary_name`                     |
+| ArchivalObjectInstance          | The display string of the archival object's instance's top container or digital object.   | `top_container > long_display_string` (OR) `digital_object > title` |
+| ArchivalObjectInstanceBarcode   | The barcode or ID of the archival object's instance's top container or digital object.    | `top_container > barcode` (OR) `digital_object > digital_object_id` |
+| ArchivalObjectContainerLocation | The title of the container's location if the instance is a top container instance.        | `location > title`                                                  |
 
 >**Important:** Do **not** modify the `HostAppInfo.InstanceDataImport` table name (E.G. *HostAppInfo.InstanceDataImport[{**Table Name**}]*). The addon uses the table name to find the information. The data within the table, however, is designed to be customized.
 

@@ -62,12 +62,12 @@ HostAppInfo.InstanceDataImport["Author"] =
 
 HostAppInfo.InstanceDataImport["Volume"] =
 {
-  AeonField = "ItemVolume", AspaceData = "ArchivalObjectContainer", FieldLength = 255, ItemGridColumn = "Volume"
+  AeonField = "ItemVolume", AspaceData = "ArchivalObjectInstance", FieldLength = 255, ItemGridColumn = "Volume"
 }
 
 HostAppInfo.InstanceDataImport["Barcode"] =
 {
-  AeonField = "ItemNumber", AspaceData = "ArchivalObjectContainerBarcode", FieldLength = 50, ItemGridColumn = "Barcode"
+  AeonField = "ItemNumber", AspaceData = "ArchivalObjectInstanceBarcode", FieldLength = 50, ItemGridColumn = "Barcode"
 }
 
 HostAppInfo.InstanceDataImport["Location"] =

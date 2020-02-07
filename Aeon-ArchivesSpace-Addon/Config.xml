@@ -29,7 +29,7 @@
 			<Description>A comma-separated list of searches to be performed in order.</Description>
 		</Setting>
     <Setting name="AutoGroupResults" value="false" type="boolean">
-			<Description>Specifies whether the results grid should be grouped by top container display string.</Description>
+			<Description>Specifies whether the results grid should be grouped automatically. The table will be grouped by the "Volume" column, which refers to either the instance's top container display string or digital object title.</Description>
 		</Setting>
   </Settings>
   <Files>

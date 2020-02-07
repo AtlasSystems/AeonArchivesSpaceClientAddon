@@ -420,11 +420,12 @@ function PopulateDataGrid()
 
         for _, archivalObjectInstance in ipairs(instances) do
             
-            local topContainer = GetTopContainerFromAPI(sessionId, archivalObjectInstance)
+            local topContainer = GetTopContainerFromAPI(sessionId, archivalObjectInstance);
+            local digitalObject = GetDigitalObjectFromAPI(sessionId, archivalObjectInstance);
 
-            availableData["ArchivalObjectContainer"] = ExtractArchivalObjectContainer(archivalObjectInstance, topContainer);
-            availableData["ArchivalObjectContainerBarcode"] = ExtractArchivalObjectContainerBarcode(topContainer);
-            
+            availableData["ArchivalObjectInstance"] = ExtractArchivalObjectInstanceTitle(archivalObjectInstance, topContainer, digitalObject);
+            availableData["ArchivalObjectInstanceBarcode"] = ExtractArchivalObjectInstanceBarcode(topContainer, digitalObject);
+
             topContainerHasContainerLocations = (
                 topContainer and
                 topContainer.container_locations and
@@ -574,7 +575,17 @@ function GetTopContainerFromAPI(sessionId, archivalObjectInstance)
     return nil
 end
 
-function ExtractArchivalObjectContainer(archivalObjectInstance, topContainer)
+function GetDigitalObjectFromAPI(sessionId, archivalObjectInstance)
+    if (archivalObjectInstance.digital_object ~= nil and archivalObjectInstance.digital_object ~= JsonParser.NIL) then
+        local digitalObjectUri = archivalObjectInstance.digital_object.ref;
+        local digitalObject = ArchivesSpaceGetRequest(sessionId, digitalObjectUri);
+        return digitalObject
+    end
+
+    return nil
+end
+
+function ExtractArchivalObjectInstanceTitle(archivalObjectInstance, topContainer, digitalObject)
     local container = "";
 
     if (archivalObjectInstance.container ~= nil and archivalObjectInstance.container ~= JsonParser.NIL) then
@@ -587,16 +598,20 @@ function ExtractArchivalObjectContainer(archivalObjectInstance, topContainer)
         end
     elseif (topContainer) then
         container = topContainer.long_display_string;
+    elseif (digitalObject) then
+        container = digitalObject.title;
     end
 
     return container;
 end
 
-function ExtractArchivalObjectContainerBarcode(topContainer)
+function ExtractArchivalObjectInstanceBarcode(topContainer, digitalObject)
     local barcode = "";
 
     if topContainer and topContainer.barcode then
         barcode = topContainer.barcode;
+    elseif digitalObject and digitalObject.digital_object_id then
+        barcode = digitalObject.digital_object_id;
     end
 
     return barcode;
