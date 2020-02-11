@@ -20,6 +20,7 @@ settings.ApiBaseURL = GetSetting("ArchivesSpaceBackendURL");
 settings.Username = GetSetting("AS_Username");
 settings.Password = GetSetting("AS_Password");
 settings.AutoSearchPriority = GetSetting("AutoSearchPriority");
+settings.AutoGroupResults = GetSetting("AutoGroupResults");
 
 local types = {};
 
@@ -38,7 +39,9 @@ types["System.Drawing.Size"] = luanet.import_type("System.Drawing.Size");
 luanet.load_assembly("System.Data");
 types["System.Data.DataTable"] = luanet.import_type("System.Data.DataTable");
 
-local currentResourceUri = "";
+local currentRecordUri = "";
+
+local gridColumns = {};
 
 local archiveSpaceAddonScript = [[
     function buildObjectUrl(currentTreeId) {
@@ -61,7 +64,7 @@ local archiveSpaceAddonScript = [[
         var archivesSpaceAddonInitialized = true;
         var currentRepositoryPath = /\/repositories\/(\d+)/.exec($(".repo-container > .btn-group > a[href*='/repositories/']")[0].href)[0];
 
-        //Sets the currentResourceUri
+        //Sets the currentRecordUri
         if (currentRepositoryPath) {
             // There is an information tree
             if (window.AjaxTree) {
@@ -198,6 +201,7 @@ function BuildItemsGrid()
     gridColumn.Visible = true;
     gridColumn.OptionsColumn.ReadOnly = true;
     gridColumn.Width = 50;
+    gridColumns["Title"] = gridColumn;
 
     gridColumn = gridView.Columns:Add();
     gridColumn.Caption = "SubTitle";
@@ -206,6 +210,7 @@ function BuildItemsGrid()
     gridColumn.Visible = true;
     gridColumn.OptionsColumn.ReadOnly = true;
     gridColumn.Width = 50;
+    gridColumns["SubTitle"] = gridColumn;
 
     gridColumn = gridView.Columns:Add();
     gridColumn.Caption = "Call Number";
@@ -214,6 +219,7 @@ function BuildItemsGrid()
     gridColumn.Visible = true;
     gridColumn.OptionsColumn.ReadOnly = true;
     gridColumn.Width = 50;
+    gridColumns["Call Number"] = gridColumn;
 
     gridColumn = gridView.Columns:Add();
     gridColumn.Caption = "Author";
@@ -222,6 +228,7 @@ function BuildItemsGrid()
     gridColumn.Visible = true;
     gridColumn.OptionsColumn.ReadOnly = true;
     gridColumn.Width = 50;
+    gridColumns["Author"] = gridColumn;
 
     gridColumn = gridView.Columns:Add();
     gridColumn.Caption = "Volume";
@@ -230,6 +237,7 @@ function BuildItemsGrid()
     gridColumn.Visible = true;
     gridColumn.OptionsColumn.ReadOnly = true;
     gridColumn.Width = 50;
+    gridColumns["Volume"] = gridColumn;
 
     gridColumn = gridView.Columns:Add();
     gridColumn.Caption = "Barcode";
@@ -238,6 +246,16 @@ function BuildItemsGrid()
     gridColumn.Visible = true;
     gridColumn.OptionsColumn.ReadOnly = true;
     gridColumn.Width = 50;
+    gridColumns["Barcode"] = gridColumn;
+
+    gridColumn = gridView.Columns:Add();
+    gridColumn.Caption = "Location";
+    gridColumn.FieldName = "Location";
+    gridColumn.Name = "gridColumnLocation";
+    gridColumn.Visible = true;
+    gridColumn.OptionsColumn.ReadOnly = true;
+    gridColumn.Width = 50;
+    gridColumns["Location"] = gridColumn;
 
     catalogSearchForm.Grid.GridControl.DataSource = CreateItemsTable();
 
@@ -254,6 +272,7 @@ function CreateItemsTable()
     itemsTable.Columns:Add("Author");
     itemsTable.Columns:Add("Volume");
     itemsTable.Columns:Add("Barcode");
+    itemsTable.Columns:Add("Location");
 
     return itemsTable;
 end
@@ -330,17 +349,17 @@ end
 
 function NodeChanged(currentRepositoryPath, selectedResourcePath)
     ResetDataGrid();
-    currentResourceUri = PathCombine(currentRepositoryPath, selectedResourcePath);
-    LogDebug('currentResourceUri = ' .. currentResourceUri);
+    currentRecordUri = PathCombine(currentRepositoryPath, selectedResourcePath);
+    LogDebug('currentRecordUri = ' .. currentRecordUri);
 
     SetImportButtonsDisabled();
 end
 
 function SetCitationImportButtonsEnabled()
     if(
-        string.match(currentResourceUri, HostAppInfo.PageUri["Resource"]) or
-        string.match(currentResourceUri, HostAppInfo.PageUri["Accession"]) or
-        string.match(currentResourceUri, HostAppInfo.PageUri["DigitalObject"])
+        string.match(currentRecordUri, HostAppInfo.PageUri["Resource"]) or
+        string.match(currentRecordUri, HostAppInfo.PageUri["Accession"]) or
+        string.match(currentRecordUri, HostAppInfo.PageUri["DigitalObject"])
     ) then
         LogDebug("Resource- Setting Import Citation to True");
         catalogSearchForm.ImportCitationButton.BarButton.Enabled = true;
@@ -369,45 +388,85 @@ function ResetDataGrid()
 end
 
 function PopulateDataGrid()
-    local itemsDataTable = CreateItemsTable();
-    LogDebug("Current Resource URI: " .. currentResourceUri);
-    if(string.match(currentResourceUri, HostAppInfo.PageUri["ArchivalObject"])) then
+    LogDebug("Current Record URI: " .. currentRecordUri);
+
+    if (string.match(currentRecordUri, HostAppInfo.PageUri["ArchivalObject"])) then
+
         local sessionId = GetSessionId();
-        local archivalObject = GetArchivalObject(sessionId, currentResourceUri);
+        local archivalObject = GetArchivalObject(sessionId, currentRecordUri);
+        local collectionUri = ExtractSubproperty(archivalObject, "resource", "ref");
+        local collection = ArchivesSpaceGetRequest(sessionId, collectionUri);
 
-        if (archivalObject) and  (archivalObject.instances ~= nil and archivalObject.instances ~= JsonParser.NIL) then
-            LogDebug("Is an instance of archival object");
-            local collectionUri = ExtractSubproperty(archivalObject, "resource", "ref");
-            local collection = ArchivesSpaceGetRequest(sessionId, collectionUri);
+        if archivalObject and archivalObject.instances and (archivalObject.instances ~= JsonParser.NIL) and (#archivalObject.instances > 0) then
+            LogDebug("Mapping Archival Object instances");
+            instances = archivalObject.instances;
+        elseif collection and collection.instances and (collection.instances ~= JsonParser.NIL) and (#collection.instances > 0) then
+            LogDebug("Archival Object has no instances. Mapping Resource instances.");
+            instances = collection.instances;
+        else
+            LogDebug("Neither the current Archival Object nor the current Resource have any instances.");
+            return;
+        end
 
-            local mapping = HostAppInfo.InstanceDataImport;
-            local availableData = {};
-            availableData["ArchivalObjectTitle"] = ExtractProperty(archivalObject, "title");
-            availableData["ResourceTitle"] = ExtractProperty(collection, "title");
-            availableData["EadId"] = ExtractProperty(collection,"ead_id");
-            availableData["Creators"] = ExtractCreators(sessionId, collection);
+        local availableData = {};
+        availableData["ArchivalObjectTitle"] = ExtractProperty(archivalObject, "title");
+        availableData["ResourceTitle"] = ExtractProperty(collection, "title");
+        availableData["EadId"] = ExtractProperty(collection,"ead_id");
+        availableData["Creators"] = ExtractCreators(sessionId, collection);
 
-            catalogSearchForm.Grid.GridControl:BeginUpdate();
+        local itemsDataTable = CreateItemsTable();
 
-            for _, v in ipairs(archivalObject.instances) do
-                local itemRow = itemsDataTable:NewRow();
-                local topContainer = GetTopContainerFromAPI(sessionId, v)
-                availableData["ArchivalObjectContainer"] = ExtractArchivalObjectContainer(v, topContainer);
-                availableData["ArchivalObjectContainerBarcode"] = ExtractArchivalObjectContainerBarcode(topContainer);
-                itemRow:set_item(mapping["Title"].ItemGridColumn, availableData[mapping["Title"].AspaceData]);
-                itemRow:set_item(mapping["SubTitle"].ItemGridColumn, availableData[mapping["SubTitle"].AspaceData]);
-                itemRow:set_item(mapping["CallNumber"].ItemGridColumn, availableData[mapping["CallNumber"].AspaceData]);
-                itemRow:set_item(mapping["Author"].ItemGridColumn, availableData[mapping["Author"].AspaceData]);
-                itemRow:set_item(mapping["Volume"].ItemGridColumn, availableData[mapping["Volume"].AspaceData]);
-                itemRow:set_item(mapping["Barcode"].ItemGridColumn, availableData[mapping["Barcode"].AspaceData]);
-                itemsDataTable.Rows:Add(itemRow);
+        catalogSearchForm.Grid.GridControl:BeginUpdate();
+
+        for _, archivalObjectInstance in ipairs(instances) do
+            
+            local topContainer = GetTopContainerFromAPI(sessionId, archivalObjectInstance);
+            local digitalObject = GetDigitalObjectFromAPI(sessionId, archivalObjectInstance);
+
+            availableData["ArchivalObjectInstance"] = ExtractArchivalObjectInstanceTitle(archivalObjectInstance, topContainer, digitalObject);
+            availableData["ArchivalObjectInstanceBarcode"] = ExtractArchivalObjectInstanceBarcode(topContainer, digitalObject);
+
+            topContainerHasContainerLocations = (
+                topContainer and
+                topContainer.container_locations and
+                topContainer.container_locations ~= JsonParser.NIL and
+                (#topContainer.container_locations > 0)
+            )
+
+            if topContainerHasContainerLocations then
+                for _, containerLocation in ipairs(topContainer.container_locations) do
+                    location = ArchivesSpaceGetRequest(sessionId, containerLocation.ref);
+                    availableData["ArchivalObjectContainerLocation"] = location.title;
+                    AddRowToItemsTable(itemsDataTable, availableData);
+                end
+            else
+                availableData["ArchivalObjectContainerLocation"] = "";
+                AddRowToItemsTable(itemsDataTable, availableData);
             end
+        end
 
-            catalogSearchForm.Grid.GridControl.DataSource = itemsDataTable;
-            catalogSearchForm.Grid.GridControl:EndUpdate();
+        catalogSearchForm.Grid.GridControl.DataSource = itemsDataTable;
+        catalogSearchForm.Grid.GridControl:EndUpdate();
 
+        catalogSearchForm.Grid.GridControl.Enabled = true;
+        if settings.AutoGroupResults then
+            gridColumns["Volume"]:Group();
         end
     end
+end
+
+function AddRowToItemsTable(itemsDataTable, availableData)
+    local itemRow = itemsDataTable:NewRow();
+
+    itemRow:set_item(HostAppInfo.InstanceDataImport["Title"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["Title"].AspaceData]);
+    itemRow:set_item(HostAppInfo.InstanceDataImport["SubTitle"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["SubTitle"].AspaceData]);
+    itemRow:set_item(HostAppInfo.InstanceDataImport["CallNumber"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["CallNumber"].AspaceData]);
+    itemRow:set_item(HostAppInfo.InstanceDataImport["Author"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["Author"].AspaceData]);
+    itemRow:set_item(HostAppInfo.InstanceDataImport["Volume"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["Volume"].AspaceData]);
+    itemRow:set_item(HostAppInfo.InstanceDataImport["Barcode"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["Barcode"].AspaceData]);
+    itemRow:set_item(HostAppInfo.InstanceDataImport["Location"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["Location"].AspaceData]);
+
+    itemsDataTable.Rows:Add(itemRow);
 end
 
 function ImportInstance_Clicked()
@@ -433,7 +492,7 @@ function ImportCitation_Clicked()
     SetImportButtonsDisabled();
 
     local sessionId = GetSessionId();
-    local collection = ArchivesSpaceGetRequest(sessionId, currentResourceUri);
+    local collection = ArchivesSpaceGetRequest(sessionId, currentRecordUri);
     local jsonModelType = ExtractProperty(collection, "jsonmodel_type");
     LogDebug("Json Model Type: ".. jsonModelType);
     local availableData = {};
@@ -516,7 +575,17 @@ function GetTopContainerFromAPI(sessionId, archivalObjectInstance)
     return nil
 end
 
-function ExtractArchivalObjectContainer(archivalObjectInstance, topContainer)
+function GetDigitalObjectFromAPI(sessionId, archivalObjectInstance)
+    if (archivalObjectInstance.digital_object ~= nil and archivalObjectInstance.digital_object ~= JsonParser.NIL) then
+        local digitalObjectUri = archivalObjectInstance.digital_object.ref;
+        local digitalObject = ArchivesSpaceGetRequest(sessionId, digitalObjectUri);
+        return digitalObject
+    end
+
+    return nil
+end
+
+function ExtractArchivalObjectInstanceTitle(archivalObjectInstance, topContainer, digitalObject)
     local container = "";
 
     if (archivalObjectInstance.container ~= nil and archivalObjectInstance.container ~= JsonParser.NIL) then
@@ -529,16 +598,20 @@ function ExtractArchivalObjectContainer(archivalObjectInstance, topContainer)
         end
     elseif (topContainer) then
         container = topContainer.long_display_string;
+    elseif (digitalObject) then
+        container = digitalObject.title;
     end
 
     return container;
 end
 
-function ExtractArchivalObjectContainerBarcode(topContainer)
+function ExtractArchivalObjectInstanceBarcode(topContainer, digitalObject)
     local barcode = "";
 
     if topContainer and topContainer.barcode then
         barcode = topContainer.barcode;
+    elseif digitalObject and digitalObject.digital_object_id then
+        barcode = digitalObject.digital_object_id;
     end
 
     return barcode;
