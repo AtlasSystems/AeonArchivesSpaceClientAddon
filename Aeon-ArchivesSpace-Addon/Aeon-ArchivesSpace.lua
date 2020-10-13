@@ -152,7 +152,6 @@ function Init()
     --AutoSearch will occur after the initial sign in attempt
     LogDebug("Navigating to BaseURL first");
     catalogSearchForm.Browser:Navigate(settings.BaseURL);
-    
 end
 
 function ShowDevTools()
@@ -161,13 +160,13 @@ end
 
 function InitializeLoginPageHandler()
     LogDebug("Initializing Login Page Handler");
+    catalogSearchForm.Browser:RegisterPageHandler("custom", "LoginPageLoaded", "PerformLogin", true);
     catalogSearchForm.Browser:RegisterPageHandler("custom", "IsNotSignedIn", "NavigateToLogin", true);
     if (settings.AutoSearch) then
         catalogSearchForm.Browser:RegisterPageHandler("custom", "IsSignedIn", "AutoSearchAfterLogin", true);
     else
         LogDebug("AutoSearch is disabled. Skipping page page handler registration to perform autosearch functionality.")
     end
-    catalogSearchForm.Browser:RegisterPageHandler("custom", "LoginPageLoaded", "PerformLogin", true);
     catalogSearchForm.Browser:RegisterPageHandler("custom", "AlwaysTrue", "InjectScriptBridge", false);
 end
 
