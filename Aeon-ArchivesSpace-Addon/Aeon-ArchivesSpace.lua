@@ -43,6 +43,9 @@ local currentRecordUri = "";
 
 local gridColumns = {};
 
+local performedAutoSearch = false;
+local transactionNumber = 0;
+
 local archiveSpaceAddonScript = [[
     function buildObjectUrl(currentTreeId) {
         var archivalObjectId = /archival_object_(\d+)/.exec(currentTreeId);
@@ -139,25 +142,16 @@ function Init()
     -- After we add all of our buttons and form elements, we can show the form.
     catalogSearchForm.Form:Show();
     catalogSearchForm.Form:LoadLayout("layout.xml");
+    
+    transactionNumber = GetFieldValue("Transaction", "TransactionNumber");
 
-    local transactionNumber = GetFieldValue("Transaction", "TransactionNumber");
     --set the pagehandler if the user manually searches on the Browser interface directly
     InitializeLoginPageHandler();
 
-    if ((settings.AutoSearch) and (transactionNumber ~= nil) and (transactionNumber > 0)) then
-        LogDebug("Performing AutoSearch");
-        local autoSearchPriority = ParseCSVLine(settings.AutoSearchPriority, ',');
-        for _, v in ipairs(autoSearchPriority) do
-            -- Keep performing searches until successful
-            if(PerformSuccessfulSearch(v)) then
-                return;
-            end
-        end
-    else
-        LogDebug("Navigating to BaseURL because AutoSearch is disabled or invalid.");
-        catalogSearchForm.Browser:Navigate(settings.BaseURL);
-    end
-
+    --We need to navigate to the main page first to detect if the user is already signed in
+    --AutoSearch will occur after the initial sign in attempt
+    LogDebug("Navigating to BaseURL first");
+    catalogSearchForm.Browser:Navigate(settings.BaseURL);
 end
 
 function ShowDevTools()
@@ -167,6 +161,12 @@ end
 function InitializeLoginPageHandler()
     LogDebug("Initializing Login Page Handler");
     catalogSearchForm.Browser:RegisterPageHandler("custom", "LoginPageLoaded", "PerformLogin", true);
+    catalogSearchForm.Browser:RegisterPageHandler("custom", "IsNotSignedIn", "NavigateToLogin", true);
+    if (settings.AutoSearch) then
+        catalogSearchForm.Browser:RegisterPageHandler("custom", "IsSignedIn", "AutoSearchAfterLogin", true);
+    else
+        LogDebug("AutoSearch is disabled. Skipping page page handler registration to perform autosearch functionality.")
+    end
     catalogSearchForm.Browser:RegisterPageHandler("custom", "AlwaysTrue", "InjectScriptBridge", false);
 end
 
@@ -776,6 +776,52 @@ function WebClientGet(webClient, apiPath)
     return webClient:DownloadData(PathCombine(settings.ApiBaseURL, apiPath));
 end
 
+function IsSignedIn()
+    return CheckIfUserSignedIn();
+end
+
+function IsNotSignedIn()
+    return not CheckIfUserSignedIn();
+end
+
+function CheckIfUserSignedIn()
+    LogDebug("Checking if user is signed in");
+
+    local jsResult = catalogSearchForm.Browser:EvaluateScript(10000, [[document.getElementsByClassName('user-container').length > 0]]);
+
+    if (jsResult.Success) then
+        LogDebug("IsUserSignedIn() result: " .. tostring(jsResult.Result));
+        return jsResult.Result;
+    else
+        LogDebug("Error determining if user is signed in: " .. jsResult.Message);
+        return false;
+    end
+end
+
+function NavigateToLogin()
+    LogDebug("Navigating to login page");
+    local loginUrl = PathCombine(settings.BaseURL,"?login")
+    catalogSearchForm.Browser:Navigate(loginUrl);
+end
+
+function AutoSearchAfterLogin()
+    LogDebug("Checking if we need to autosearch");
+    
+    if ((settings.AutoSearch) and (not performedAutoSearch) and (transactionNumber ~= nil) and (transactionNumber > 0)) then
+        LogDebug("Performing AutoSearch");
+        local autoSearchPriority = ParseCSVLine(settings.AutoSearchPriority, ',');
+        for _, v in ipairs(autoSearchPriority) do
+            -- Keep performing searches until successful
+            if(PerformSuccessfulSearch(v)) then
+                performedAutoSearch = true;
+                return;
+            end
+        end
+    else
+        LogDebug("AutoSearch is disabled or already perfored");
+    end
+end
+
 function LoginPageLoaded()
     LogDebug("Checking if Login Page is loaded");
 
@@ -793,7 +839,7 @@ end
 function PerformLogin()
     --Reregister login page handler
     catalogSearchForm.Browser:RegisterPageHandler("custom", "LoginPageLoaded", "PerformLogin", true);
-
+    
     LogDebug("Attempting to log in.");
 
     --Anonymous function invoked with params
