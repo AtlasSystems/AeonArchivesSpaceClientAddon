@@ -1,7 +1,7 @@
 # Aeon ArchivesSpace Client Addon
 
 ## Version
-- 2.0:
+- 2.1:
     - Added support for staff logins in Archives Space v2.8.0.
 - 2.0:
     - Added support for importing the barcode from an instance's Top Container.
