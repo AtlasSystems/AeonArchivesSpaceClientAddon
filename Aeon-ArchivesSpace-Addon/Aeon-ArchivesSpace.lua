@@ -660,7 +660,7 @@ function ExtractCreatorName(creatorRecord)
 end
 
 function GetAuthenticationToken()
-    local authenticationToken = JsonParser:ParseJSON(SendApiRequest('/users/' .. settings.Username .. '/login', 'POST', "password="..settings.Password ));
+    local authenticationToken = JsonParser:ParseJSON(SendApiRequest('/users/' .. settings.Username .. '/login', 'POST', "password="..AtlasHelpers.UrlEncode(settings.Password)));
 
     if (authenticationToken == nil or authenticationToken == JsonParser.NIL) then
         ReportError("Unable to get valid authentication token.");
