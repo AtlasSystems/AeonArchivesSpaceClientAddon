@@ -1,14 +1,15 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Configuration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
   <Name>ArchivesSpace Interface</Name>
   <Author>Atlas Systems, Inc.</Author>
-  <Version>2.1.0</Version>
+  <Version>2.2.0</Version>
   <Active>True</Active>
   <Type>Addon</Type>
   <Description>This addon performs searches in ArchivesSpace using the staff interface. This addon supports ArchivesSpace versions v2.8.0 and later.</Description>
   <Forms>
     <Form>FormRequest</Form>
   </Forms>
+  <Permissions />
   <Settings>
     <Setting name="AutoSearch" value="true" type="boolean">
       <Description>Defines whether the search should be automatically performed when the form opens.</Description>
@@ -26,11 +27,11 @@
       <Description>The staff password to use when logging in to the web interface. It is recommended to use an account that has read-only permissions on the relevant repositories.</Description>
     </Setting>
     <Setting name="AutoSearchPriority" value="Title, Author, CallNumber" type="string">
-			<Description>A comma-separated list of searches to be performed in order.</Description>
-		</Setting>
+      <Description>A comma-separated list of searches to be performed in order.</Description>
+    </Setting>
     <Setting name="AutoGroupResults" value="false" type="boolean">
-			<Description>Specifies whether the results grid should be grouped automatically. The table will be grouped by the "Volume" column, which refers to either the instance's top container display string or digital object title.</Description>
-		</Setting>
+      <Description>Specifies whether the results grid should be grouped automatically. The table will be grouped by the "Volume" column, which refers to either the instance's top container display string or digital object title.</Description>
+    </Setting>
   </Settings>
   <Files>
     <File>Aeon-ArchivesSpace.lua</File>

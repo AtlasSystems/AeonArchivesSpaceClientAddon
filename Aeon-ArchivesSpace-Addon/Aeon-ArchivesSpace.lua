@@ -265,7 +265,6 @@ end
 
 function CreateItemsTable()
     local itemsTable = types["System.Data.DataTable"]();
-
     itemsTable.Columns:Add("Title");
     itemsTable.Columns:Add("SubTitle");
     itemsTable.Columns:Add("CallNumber");
@@ -457,15 +456,13 @@ end
 
 function AddRowToItemsTable(itemsDataTable, availableData)
     local itemRow = itemsDataTable:NewRow();
-
-    itemRow:set_item(HostAppInfo.InstanceDataImport["Title"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["Title"].AspaceData]);
-    itemRow:set_item(HostAppInfo.InstanceDataImport["SubTitle"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["SubTitle"].AspaceData]);
-    itemRow:set_item(HostAppInfo.InstanceDataImport["CallNumber"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["CallNumber"].AspaceData]);
-    itemRow:set_item(HostAppInfo.InstanceDataImport["Author"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["Author"].AspaceData]);
-    itemRow:set_item(HostAppInfo.InstanceDataImport["Volume"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["Volume"].AspaceData]);
-    itemRow:set_item(HostAppInfo.InstanceDataImport["Barcode"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["Barcode"].AspaceData]);
-    itemRow:set_item(HostAppInfo.InstanceDataImport["Location"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["Location"].AspaceData]);
-
+    itemRow:set_Item(HostAppInfo.InstanceDataImport["Title"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["Title"].AspaceData]);
+    itemRow:set_Item(HostAppInfo.InstanceDataImport["SubTitle"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["SubTitle"].AspaceData]);
+    itemRow:set_Item(HostAppInfo.InstanceDataImport["CallNumber"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["CallNumber"].AspaceData]);
+    itemRow:set_Item(HostAppInfo.InstanceDataImport["Author"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["Author"].AspaceData]);
+    itemRow:set_Item(HostAppInfo.InstanceDataImport["Volume"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["Volume"].AspaceData]);
+    itemRow:set_Item(HostAppInfo.InstanceDataImport["Barcode"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["Barcode"].AspaceData]);
+    itemRow:set_Item(HostAppInfo.InstanceDataImport["Location"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["Location"].AspaceData]);
     itemsDataTable.Rows:Add(itemRow);
 end
 
@@ -473,7 +470,7 @@ function ImportInstance_Clicked()
     local importRow = catalogSearchForm.Grid.GridControl.MainView:GetFocusedRow();
 
     if (importRow == nil) then
-        log:Debug("Import row was nil.  Cancelling the import.");
+        LogDebug("Import row was nil.  Cancelling the import.");
         return;
     end
 
@@ -663,7 +660,7 @@ function ExtractCreatorName(creatorRecord)
 end
 
 function GetAuthenticationToken()
-    local authenticationToken = JsonParser:ParseJSON(SendApiRequest('/users/' .. settings.Username .. '/login', 'POST', { ["password"] = settings.Password }));
+    local authenticationToken = JsonParser:ParseJSON(SendApiRequest('/users/' .. settings.Username .. '/login', 'POST', "password="..AtlasHelpers.UrlEncode(settings.Password)));
 
     if (authenticationToken == nil or authenticationToken == JsonParser.NIL) then
         ReportError("Unable to get valid authentication token.");
@@ -734,13 +731,6 @@ function SendApiRequest(apiPath, method, parameters, authToken)
 
     local webClient = types["System.Net.WebClient"]();
 
-    local postParameters = types["System.Collections.Specialized.NameValueCollection"]();
-    if (parameters ~= nil) then
-        for k, v in pairs(parameters) do
-            postParameters:Add(k, v);
-        end
-    end
-
     webClient.Headers:Clear();
     if (authToken ~= nil and authToken ~= "") then
         webClient.Headers:Add("X-ArchivesSpace-Session", authToken);
@@ -749,18 +739,15 @@ function SendApiRequest(apiPath, method, parameters, authToken)
     local success, result;
 
     if (method == 'POST') then
-        success, result = pcall(WebClientPost, webClient, apiPath, postParameters);
+        success, result = pcall(WebClientPost, webClient, apiPath, method, parameters);
     else
         success, result = pcall(WebClientGet, webClient, apiPath);
     end
 
     if (success) then
         LogDebug("API call successful");
-
-        local utf8Result = types["System.Text.Encoding"].UTF8:GetString(result);
-
-        LogDebug("Response: " .. utf8Result);
-        return utf8Result;
+        LogDebug("Response: " .. result);
+        return result;
     else
         LogDebug("API call error");
         OnError(result);
@@ -768,12 +755,12 @@ function SendApiRequest(apiPath, method, parameters, authToken)
     end
 end
 
-function WebClientPost(webClient, apiPath, postParameters)
-    return webClient:UploadValues(PathCombine(settings.ApiBaseURL, apiPath), method, postParameters);
+function WebClientPost(webClient, apiPath, method, postParameters)
+    return webClient:UploadString(PathCombine(settings.ApiBaseURL, apiPath), method, postParameters);
 end
 
 function WebClientGet(webClient, apiPath)
-    return webClient:DownloadData(PathCombine(settings.ApiBaseURL, apiPath));
+    return webClient:DownloadString(PathCombine(settings.ApiBaseURL, apiPath));
 end
 
 function IsSignedIn()
