@@ -29,7 +29,7 @@
         <property name="TextAlignMode">UseParentOptions</property>
       </property>
       <property name="CaptionImageVisible">true</property>
-      <property name="CellSize">@1,Width=0@1,Height=0</property>
+      <property name="FlowDirection">LeftToRight</property>
       <property name="LayoutMode">Regular</property>
       <property name="CaptionImageLocation">Default</property>
       <property name="CaptionImageIndex">-1</property>
@@ -40,103 +40,16 @@
       <property name="ShowTabPageCloseButton">false</property>
       <property name="AllowHtmlStringInCaption">false</property>
       <property name="AllowGlyphSkinning">Default</property>
-      <property name="OptionsPrint" isnull="true" iskey="true">
-        <property name="AppearanceGroupCaption" isnull="true" iskey="true">
-          <property name="ForeColor" />
-          <property name="BorderColor" />
-          <property name="BackColor" />
-          <property name="BackColor2" />
-          <property name="Font">Tahoma, 8.25pt</property>
-          <property name="GradientMode">Horizontal</property>
-          <property name="FontSizeDelta">0</property>
-          <property name="FontStyleDelta">Regular</property>
-        </property>
-        <property name="AllowPrintGroupCaption">true</property>
-        <property name="TextToControlDistance">-1</property>
-        <property name="AllowPrint">true</property>
-        <property name="AppearanceItemCaption" isnull="true" iskey="true">
-          <property name="ForeColor" />
-          <property name="BorderColor" />
-          <property name="BackColor" />
-          <property name="BackColor2" />
-          <property name="Font">Tahoma, 8.25pt</property>
-          <property name="GradientMode">Horizontal</property>
-          <property name="FontSizeDelta">0</property>
-          <property name="FontStyleDelta">Regular</property>
-        </property>
-      </property>
       <property name="OptionsTableLayoutGroup" isnull="true" iskey="true">
         <property name="RowDefinitions" iskey="true" value="0" />
         <property name="ColumnDefinitions" iskey="true" value="0" />
       </property>
-      <property name="Size">@3,Width=977@3,Height=520</property>
+      <property name="Size">@3,Width=988@3,Height=522</property>
       <property name="ExpandButtonVisible">false</property>
       <property name="ExpandButtonMode">Normal</property>
       <property name="HeaderButtonsLocation">Default</property>
-      <property name="TextToControlDistance">0</property>
+      <property name="GroupStyle">Inherited</property>
       <property name="TextLocation">Top</property>
-      <property name="AppearanceTabPage" isnull="true" iskey="true">
-        <property name="Header" isnull="true" iskey="true">
-          <property name="ForeColor" />
-          <property name="BorderColor" />
-          <property name="BackColor" />
-          <property name="BackColor2" />
-          <property name="Font">Tahoma, 8.25pt</property>
-          <property name="GradientMode">Horizontal</property>
-          <property name="FontSizeDelta">0</property>
-          <property name="FontStyleDelta">Regular</property>
-        </property>
-        <property name="HeaderActive" isnull="true" iskey="true">
-          <property name="ForeColor" />
-          <property name="BorderColor" />
-          <property name="BackColor" />
-          <property name="BackColor2" />
-          <property name="Font">Tahoma, 8.25pt</property>
-          <property name="GradientMode">Horizontal</property>
-          <property name="FontSizeDelta">0</property>
-          <property name="FontStyleDelta">Regular</property>
-        </property>
-        <property name="HeaderDisabled" isnull="true" iskey="true">
-          <property name="ForeColor" />
-          <property name="BorderColor" />
-          <property name="BackColor" />
-          <property name="BackColor2" />
-          <property name="Font">Tahoma, 8.25pt</property>
-          <property name="GradientMode">Horizontal</property>
-          <property name="FontSizeDelta">0</property>
-          <property name="FontStyleDelta">Regular</property>
-        </property>
-        <property name="HeaderHotTracked" isnull="true" iskey="true">
-          <property name="ForeColor" />
-          <property name="BorderColor" />
-          <property name="BackColor" />
-          <property name="BackColor2" />
-          <property name="Font">Tahoma, 8.25pt</property>
-          <property name="GradientMode">Horizontal</property>
-          <property name="FontSizeDelta">0</property>
-          <property name="FontStyleDelta">Regular</property>
-        </property>
-        <property name="PageClient" isnull="true" iskey="true">
-          <property name="ForeColor" />
-          <property name="BorderColor" />
-          <property name="BackColor" />
-          <property name="BackColor2" />
-          <property name="Font">Tahoma, 8.25pt</property>
-          <property name="GradientMode">Horizontal</property>
-          <property name="FontSizeDelta">0</property>
-          <property name="FontStyleDelta">Regular</property>
-        </property>
-      </property>
-      <property name="AppearanceGroup" isnull="true" iskey="true">
-        <property name="ForeColor" />
-        <property name="BorderColor" />
-        <property name="BackColor" />
-        <property name="BackColor2" />
-        <property name="Font">Tahoma, 8.25pt</property>
-        <property name="GradientMode">Horizontal</property>
-        <property name="FontSizeDelta">0</property>
-        <property name="FontStyleDelta">Regular</property>
-      </property>
       <property name="TabPageWidth">0</property>
       <property name="OptionsCustomization" isnull="true" iskey="true">
         <property name="AllowDrag">Default</property>
@@ -162,20 +75,8 @@
         <property name="IconAllowHtmlString">Default</property>
       </property>
       <property name="Name">Root</property>
-      <property name="AppearanceItemCaption" isnull="true" iskey="true">
-        <property name="ForeColor" />
-        <property name="BorderColor" />
-        <property name="BackColor" />
-        <property name="BackColor2" />
-        <property name="Font">Tahoma, 8.25pt</property>
-        <property name="GradientMode">Horizontal</property>
-        <property name="FontSizeDelta">0</property>
-        <property name="FontStyleDelta">Regular</property>
-      </property>
       <property name="ParentName" />
       <property name="TextVisible">false</property>
-      <property name="Spacing">0, 0, 0, 0</property>
-      <property name="Padding">0, 0, 0, 0</property>
       <property name="Location">@1,X=0@1,Y=0</property>
       <property name="ShowInCustomizationForm">true</property>
       <property name="Text">Main Group</property>
@@ -193,25 +94,16 @@
       <property name="ImageIndex">-1</property>
       <property name="ImageAlignment">MiddleLeft</property>
       <property name="ImageToTextDistance">5</property>
-      <property name="OptionsPrint" isnull="true" iskey="true">
-        <property name="TextToControlDistance">-1</property>
-        <property name="AllowPrint">true</property>
-        <property name="AppearanceItemCaption" isnull="true" iskey="true">
-          <property name="ForeColor" />
-          <property name="BorderColor" />
-          <property name="BackColor" />
-          <property name="BackColor2" />
-          <property name="Font">Tahoma, 8.25pt</property>
-          <property name="GradientMode">Horizontal</property>
-          <property name="FontSizeDelta">0</property>
-          <property name="FontStyleDelta">Regular</property>
-        </property>
-      </property>
+      <property name="SvgImage" isnull="true" />
+      <property name="SvgImageSize">@1,Width=0@1,Height=0</property>
       <property name="MaxSize">@1,Width=0@1,Height=0</property>
-      <property name="MinSize">@3,Width=107@2,Height=24</property>
+      <property name="MinSize">@3,Width=106@2,Height=22</property>
       <property name="ControlAlignment">TopLeft</property>
       <property name="ContentVisible">true</property>
+      <property name="HighlightFocusedItem">Default</property>
       <property name="TrimClientAreaToControl">true</property>
+      <property name="ContentVertAlignment">Default</property>
+      <property name="ContentHorzAlignment">Default</property>
       <property name="AllowGlyphSkinning">Default</property>
       <property name="OptionsCustomization" isnull="true" iskey="true">
         <property name="AllowDrag">Default</property>
@@ -237,24 +129,11 @@
         <property name="IconAllowHtmlString">Default</property>
       </property>
       <property name="Name">CatalogItemsGrid</property>
-      <property name="AppearanceItemCaption" isnull="true" iskey="true">
-        <property name="ForeColor" />
-        <property name="BorderColor" />
-        <property name="BackColor" />
-        <property name="BackColor2" />
-        <property name="Font">Tahoma, 8.25pt</property>
-        <property name="GradientMode">Horizontal</property>
-        <property name="FontSizeDelta">0</property>
-        <property name="FontStyleDelta">Regular</property>
-      </property>
       <property name="ParentName">Root</property>
       <property name="TextVisible">false</property>
       <property name="TextSize">@1,Width=0@1,Height=0</property>
-      <property name="TextToControlDistance">3</property>
-      <property name="Spacing">0, 0, 0, 0</property>
-      <property name="Padding">2, 2, 2, 2</property>
-      <property name="Location">@1,X=0@3,Y=435</property>
-      <property name="Size">@3,Width=977@2,Height=85</property>
+      <property name="Location">@1,X=0@3,Y=370</property>
+      <property name="Size">@3,Width=974@3,Height=138</property>
       <property name="ShowInCustomizationForm">true</property>
       <property name="Text">Items</property>
       <property name="CustomizationFormText">CatalogItemsGrid</property>
@@ -263,7 +142,7 @@
       <property name="TextLocation">Default</property>
     </property>
     <property name="Item3" isnull="true" iskey="true">
-      <property name="TypeName">AtlasSystems.Scripting.UI.AddonControls.ChromiumBrowser</property>
+      <property name="TypeName">AtlasSystems.Scripting.UI.AddonControls.WebView2Browser</property>
       <property name="ControlName">Catalog</property>
       <property name="AllowHtmlStringInCaption">false</property>
       <property name="TextAlignMode">CustomSize</property>
@@ -272,25 +151,16 @@
       <property name="ImageIndex">-1</property>
       <property name="ImageAlignment">MiddleLeft</property>
       <property name="ImageToTextDistance">5</property>
-      <property name="OptionsPrint" isnull="true" iskey="true">
-        <property name="TextToControlDistance">-1</property>
-        <property name="AllowPrint">true</property>
-        <property name="AppearanceItemCaption" isnull="true" iskey="true">
-          <property name="ForeColor" />
-          <property name="BorderColor" />
-          <property name="BackColor" />
-          <property name="BackColor2" />
-          <property name="Font">Tahoma, 8.25pt</property>
-          <property name="GradientMode">Horizontal</property>
-          <property name="FontSizeDelta">0</property>
-          <property name="FontStyleDelta">Regular</property>
-        </property>
-      </property>
+      <property name="SvgImage" isnull="true" />
+      <property name="SvgImageSize">@1,Width=0@1,Height=0</property>
       <property name="MaxSize">@1,Width=0@1,Height=0</property>
-      <property name="MinSize">@3,Width=104@2,Height=24</property>
+      <property name="MinSize">@3,Width=102@2,Height=22</property>
       <property name="ControlAlignment">TopLeft</property>
       <property name="ContentVisible">true</property>
+      <property name="HighlightFocusedItem">Default</property>
       <property name="TrimClientAreaToControl">true</property>
+      <property name="ContentVertAlignment">Default</property>
+      <property name="ContentHorzAlignment">Default</property>
       <property name="AllowGlyphSkinning">Default</property>
       <property name="OptionsCustomization" isnull="true" iskey="true">
         <property name="AllowDrag">Default</property>
@@ -316,24 +186,11 @@
         <property name="IconAllowHtmlString">Default</property>
       </property>
       <property name="Name">Catalog</property>
-      <property name="AppearanceItemCaption" isnull="true" iskey="true">
-        <property name="ForeColor" />
-        <property name="BorderColor" />
-        <property name="BackColor" />
-        <property name="BackColor2" />
-        <property name="Font">Tahoma, 8.25pt</property>
-        <property name="GradientMode">Horizontal</property>
-        <property name="FontSizeDelta">0</property>
-        <property name="FontStyleDelta">Regular</property>
-      </property>
       <property name="ParentName">Root</property>
       <property name="TextVisible">false</property>
       <property name="TextSize">@1,Width=0@1,Height=0</property>
-      <property name="TextToControlDistance">0</property>
-      <property name="Spacing">0, 0, 0, 0</property>
-      <property name="Padding">2, 2, 2, 2</property>
       <property name="Location">@1,X=0@1,Y=0</property>
-      <property name="Size">@3,Width=977@3,Height=435</property>
+      <property name="Size">@3,Width=974@3,Height=370</property>
       <property name="ShowInCustomizationForm">true</property>
       <property name="Text">Catalog Browser</property>
       <property name="CustomizationFormText">Catalog</property>
