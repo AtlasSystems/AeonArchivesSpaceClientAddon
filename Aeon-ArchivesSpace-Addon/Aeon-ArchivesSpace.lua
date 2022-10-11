@@ -122,7 +122,7 @@ function Init()
     local layoutName = "layout.xml";
     if (WebView2Enabled()) then
         catalogSearchForm.Browser = catalogSearchForm.Form:CreateBrowser("WebView2Catalog", "Catalog Browser", "Catalog Search", "WebView2");
-        layoutName = "layoutWebview.xml";
+        layoutName = "layoutWebView2.xml";
     else
         catalogSearchForm.Browser = catalogSearchForm.Form:CreateBrowser("Catalog", "Catalog Browser", "Catalog Search", "Chromium");
     end
