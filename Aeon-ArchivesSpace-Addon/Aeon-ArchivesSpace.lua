@@ -119,8 +119,10 @@ function Init()
     catalogSearchForm.Form = interfaceMngr:CreateForm("ArchivesSpace", "Script");
 
     -- Add a browser
+    local layoutName = "layout.xml";
     if (WebView2Enabled()) then
-        catalogSearchForm.Browser = catalogSearchForm.Form:CreateBrowser("Catalog", "Catalog Browser", "Catalog Search", "WebView2");
+        catalogSearchForm.Browser = catalogSearchForm.Form:CreateBrowser("WebView2Catalog", "Catalog Browser", "Catalog Search", "WebView2");
+        layoutName = "layoutWebview.xml";
     else
         catalogSearchForm.Browser = catalogSearchForm.Form:CreateBrowser("Catalog", "Catalog Browser", "Catalog Search", "Chromium");
     end
@@ -149,7 +151,7 @@ function Init()
 
     -- After we add all of our buttons and form elements, we can show the form.
     catalogSearchForm.Form:Show();
-    catalogSearchForm.Form:LoadLayout("layout.xml");
+    catalogSearchForm.Form:LoadLayout(layoutName);
     
     transactionNumber = GetFieldValue("Transaction", "TransactionNumber");
 
@@ -791,7 +793,7 @@ function CheckIfUserSignedIn()
 
     if (jsResult.Success) then
         LogDebug("IsUserSignedIn() result: " .. tostring(jsResult.Result));
-        return jsResult.Result == "True";
+        return jsResult.Result == "True" or jsResult.Result == true;
     else
         LogDebug("Error determining if user is signed in: " .. jsResult.Message);
         return false;
@@ -829,7 +831,7 @@ function LoginPageLoaded()
 
     if (jsResult.Success) then
         LogDebug("LoginPageLoaded() result: " .. tostring(jsResult.Result));
-        return jsResult.Result == "True";
+        return jsResult.Result == "True" or jsResult.Result == true;
     else
         LogDebug("Error determining if login page was loaded: " .. jsResult.Message);
         return false;
