@@ -22,22 +22,10 @@ settings.Password = GetSetting("AS_Password");
 settings.AutoSearchPriority = GetSetting("AutoSearchPriority");
 settings.AutoGroupResults = GetSetting("AutoGroupResults");
 
-local types = {};
-
-luanet.load_assembly("System.Net");
-types["System.Net.WebClient"] = luanet.import_type("System.Net.WebClient");
-types["System.IO.StreamReader"] = luanet.import_type("System.IO.StreamReader");
-types["System.Text.Encoding"] = luanet.import_type("System.Text.Encoding");
-types["System.DBNull"] = luanet.import_type("System.DBNull");
-
-luanet.load_assembly("System");
-types["System.Collections.Specialized.NameValueCollection"] = luanet.import_type("System.Collections.Specialized.NameValueCollection");
-
-luanet.load_assembly("System.Drawing");
-types["System.Drawing.Size"] = luanet.import_type("System.Drawing.Size");
-
-luanet.load_assembly("System.Data");
-types["System.Data.DataTable"] = luanet.import_type("System.Data.DataTable");
+import("System.Net");
+import("System");
+import("System.Drawing");
+import("System.Data");
 
 local currentRecordUri = "";
 
@@ -176,7 +164,7 @@ function BuildItemsGrid()
     catalogSearchForm.Grid = catalogSearchForm.Form:CreateGrid("CatalogItemsGrid", "Items");
     catalogSearchForm.Grid.GridControl.Enabled = false;
 
-    catalogSearchForm.Grid.TextSize = types["System.Drawing.Size"].Empty;
+    catalogSearchForm.Grid.TextSize = Size.Empty;
     catalogSearchForm.Grid.TextVisible = false;
 
     local gridControl = catalogSearchForm.Grid.GridControl;
@@ -264,7 +252,7 @@ function BuildItemsGrid()
 end
 
 function CreateItemsTable()
-    local itemsTable = types["System.Data.DataTable"]();
+    local itemsTable = DataTable();
     itemsTable.Columns:Add("Title");
     itemsTable.Columns:Add("SubTitle");
     itemsTable.Columns:Add("CallNumber");
@@ -712,7 +700,7 @@ function ArchivesSpaceGetRequest(sessionId, uri)
 end
 
 function ImportField(target, fieldValue, targetSize)
-    if ((fieldValue ~= nil) and (fieldValue ~= "") and (fieldValue ~= types["System.DBNull"].Value)) then
+    if ((fieldValue ~= nil) and (fieldValue ~= "") and (fieldValue ~= DBNull.Value)) then
         SetFieldValue("Transaction", target, Truncate(fieldValue, targetSize));
     end
 end
@@ -729,7 +717,7 @@ function SendApiRequest(apiPath, method, parameters, authToken)
     LogDebug('[SendApiRequest] ' .. method);
     LogDebug('apiPath: ' .. apiPath);
 
-    local webClient = types["System.Net.WebClient"]();
+    local webClient = WebClient();
 
     webClient.Headers:Clear();
     if (authToken ~= nil and authToken ~= "") then
