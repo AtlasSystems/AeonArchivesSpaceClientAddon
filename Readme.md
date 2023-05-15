@@ -1,6 +1,8 @@
 # Aeon ArchivesSpace Client Addon
 
 ## Version
+- 3.0:
+    - Added support for embedded WebView2 browser. The addon will use this browser if it is available (Aeon 5.2+), and will use the embedded Chromium browser otherwise.
 - 2.1:
     - Added support for staff logins in Archives Space v2.8.0.
 - 2.0:
