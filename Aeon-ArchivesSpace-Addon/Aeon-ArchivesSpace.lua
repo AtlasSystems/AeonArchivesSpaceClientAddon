@@ -47,6 +47,10 @@ local performedAutoSearch = false;
 local transactionNumber = 0;
 
 local archiveSpaceAddonScript = [[
+    if (!("atlasAddonAsync" in window)) {
+        atlasAddonAsync = window.chrome.webview.hostObjects.sync.atlasAddon;
+    }
+
     function buildObjectUrl(currentTreeId) {
         var archivalObjectId = /archival_object_(\d+)/.exec(currentTreeId);
         var resourceObjectId = /resource_(\d+)/.exec(currentTreeId);
@@ -115,7 +119,13 @@ function Init()
     catalogSearchForm.Form = interfaceMngr:CreateForm("ArchivesSpace", "Script");
 
     -- Add a browser
-    catalogSearchForm.Browser = catalogSearchForm.Form:CreateBrowser("Catalog", "Catalog Browser", "Catalog Search", "Chromium");
+    local layoutName = "layout.xml";
+    if (WebView2Enabled()) then
+        catalogSearchForm.Browser = catalogSearchForm.Form:CreateBrowser("WebView2Catalog", "Catalog Browser", "Catalog Search", "WebView2");
+        layoutName = "layoutWebView2.xml";
+    else
+        catalogSearchForm.Browser = catalogSearchForm.Form:CreateBrowser("Catalog", "Catalog Browser", "Catalog Search", "Chromium");
+    end
 
     -- Hide the text label
     catalogSearchForm.Browser.TextVisible = false;
@@ -141,7 +151,7 @@ function Init()
 
     -- After we add all of our buttons and form elements, we can show the form.
     catalogSearchForm.Form:Show();
-    catalogSearchForm.Form:LoadLayout("layout.xml");
+    catalogSearchForm.Form:LoadLayout(layoutName);
     
     transactionNumber = GetFieldValue("Transaction", "TransactionNumber");
 
@@ -152,6 +162,10 @@ function Init()
     --AutoSearch will occur after the initial sign in attempt
     LogDebug("Navigating to BaseURL first");
     catalogSearchForm.Browser:Navigate(settings.BaseURL);
+end
+
+function WebView2Enabled()
+    return AddonInfo.Browsers ~= nil and AddonInfo.Browsers.WebView2 ~= nil and AddonInfo.Browsers.WebView2 == true;
 end
 
 function ShowDevTools()
@@ -307,9 +321,9 @@ function PerformSuccessfulSearch(searchType)
         return false;
     else
         local searchUrl = settings.BaseURL;
-        searchTerm = nil;
-        aeonSourceField = HostAppInfo.SearchMapping[searchType].AeonSourceField;
-        aspaceSeachCode = HostAppInfo.SearchMapping[searchType].ASpaceSearchType;
+        local searchTerm = nil;
+        local aeonSourceField = HostAppInfo.SearchMapping[searchType].AeonSourceField;
+        local aspaceSearchCode = HostAppInfo.SearchMapping[searchType].ASpaceSearchType;
 
         if GetFieldValue("Transaction", aeonSourceField) ~= nil then
             searchTerm = GetFieldValue("Transaction", aeonSourceField);
@@ -318,8 +332,8 @@ function PerformSuccessfulSearch(searchType)
             return false;
         end
         if (searchTerm ~= nil) and (searchTerm ~= "") then
-            if(aspaceSeachCode ~= nil) then
-                searchUrl = PathCombine(searchUrl,"advanced_search?utf8=✓&advanced=true&t0=text&op0=&f0=") .. AtlasHelpers.UrlEncode(aspaceSeachCode) .. "&top0=contains&v0=" .. AtlasHelpers.UrlEncode(searchTerm);
+            if(aspaceSearchCode ~= nil) then
+                searchUrl = PathCombine(searchUrl,"advanced_search?utf8=✓&advanced=true&t0=text&op0=&f0=") .. AtlasHelpers.UrlEncode(aspaceSearchCode) .. "&top0=contains&v0=" .. AtlasHelpers.UrlEncode(searchTerm);
             else
                 -- Defaults to a general search if the ArchivesSpace Search Type is Nil
                 searchUrl = PathCombine(searchUrl,"search?utf8=✓&q=") .. AtlasHelpers.UrlEncode(searchTerm);
@@ -395,6 +409,7 @@ function PopulateDataGrid()
         local archivalObject = GetArchivalObject(sessionId, currentRecordUri);
         local collectionUri = ExtractSubproperty(archivalObject, "resource", "ref");
         local collection = ArchivesSpaceGetRequest(sessionId, collectionUri);
+        local instances = {};
 
         if archivalObject and archivalObject.instances and (archivalObject.instances ~= JsonParser.NIL) and (#archivalObject.instances > 0) then
             LogDebug("Mapping Archival Object instances");
@@ -425,7 +440,7 @@ function PopulateDataGrid()
             availableData["ArchivalObjectInstance"] = ExtractArchivalObjectInstanceTitle(archivalObjectInstance, topContainer, digitalObject);
             availableData["ArchivalObjectInstanceBarcode"] = ExtractArchivalObjectInstanceBarcode(topContainer, digitalObject);
 
-            topContainerHasContainerLocations = (
+            local topContainerHasContainerLocations = (
                 topContainer and
                 topContainer.container_locations and
                 topContainer.container_locations ~= JsonParser.NIL and
@@ -434,7 +449,7 @@ function PopulateDataGrid()
 
             if topContainerHasContainerLocations then
                 for _, containerLocation in ipairs(topContainer.container_locations) do
-                    location = ArchivesSpaceGetRequest(sessionId, containerLocation.ref);
+                    local location = ArchivesSpaceGetRequest(sessionId, containerLocation.ref);
                     availableData["ArchivalObjectContainerLocation"] = location.title;
                     AddRowToItemsTable(itemsDataTable, availableData);
                 end
@@ -774,11 +789,11 @@ end
 function CheckIfUserSignedIn()
     LogDebug("Checking if user is signed in");
 
-    local jsResult = catalogSearchForm.Browser:EvaluateScript(10000, [[document.getElementsByClassName('user-container').length > 0]]);
+    local jsResult = catalogSearchForm.Browser:EvaluateScript([[document.getElementsByClassName('user-container').length > 0]]);
 
     if (jsResult.Success) then
         LogDebug("IsUserSignedIn() result: " .. tostring(jsResult.Result));
-        return jsResult.Result;
+        return jsResult.Result == "True" or jsResult.Result == true;
     else
         LogDebug("Error determining if user is signed in: " .. jsResult.Message);
         return false;
@@ -812,11 +827,11 @@ end
 function LoginPageLoaded()
     LogDebug("Checking if Login Page is loaded");
 
-    local jsResult = catalogSearchForm.Browser:EvaluateScript(10000, [[document.getElementById('login') != null]]);
+    local jsResult = catalogSearchForm.Browser:EvaluateScript([[document.getElementById('login') != null]]);
 
     if (jsResult.Success) then
         LogDebug("LoginPageLoaded() result: " .. tostring(jsResult.Result));
-        return jsResult.Result;
+        return jsResult.Result == "True" or jsResult.Result == true;
     else
         LogDebug("Error determining if login page was loaded: " .. jsResult.Message);
         return false;
@@ -846,7 +861,7 @@ function PerformLogin()
         })
     ]];
 
-    catalogSearchForm.Browser:ExecuteScript(loginScript, { settings.Username, settings.Password });
+    catalogSearchForm.Browser:ExecuteScript(loginScript, { settings.Username, settings.Password } );
 end
 
 function Truncate(value, size)
