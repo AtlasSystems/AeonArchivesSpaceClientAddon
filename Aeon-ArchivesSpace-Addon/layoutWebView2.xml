@@ -44,7 +44,7 @@
         <property name="RowDefinitions" iskey="true" value="0" />
         <property name="ColumnDefinitions" iskey="true" value="0" />
       </property>
-      <property name="Size">@3,Width=988@3,Height=522</property>
+      <property name="Size">@4,Width=1914@3,Height=833</property>
       <property name="ExpandButtonVisible">false</property>
       <property name="ExpandButtonMode">Normal</property>
       <property name="HeaderButtonsLocation">Default</property>
@@ -85,65 +85,8 @@
       <property name="Visibility">Always</property>
     </property>
     <property name="Item2" isnull="true" iskey="true">
-      <property name="TypeName">AtlasSystems.Scripting.UI.AddonControls.Grid</property>
-      <property name="ControlName">CatalogItemsGrid</property>
-      <property name="AllowHtmlStringInCaption">false</property>
-      <property name="TextAlignMode">UseParentOptions</property>
-      <property name="SizeConstraintsType">Default</property>
-      <property name="Image" isnull="true" />
-      <property name="ImageIndex">-1</property>
-      <property name="ImageAlignment">MiddleLeft</property>
-      <property name="ImageToTextDistance">5</property>
-      <property name="SvgImage" isnull="true" />
-      <property name="SvgImageSize">@1,Width=0@1,Height=0</property>
-      <property name="MaxSize">@1,Width=0@1,Height=0</property>
-      <property name="MinSize">@3,Width=106@2,Height=22</property>
-      <property name="ControlAlignment">TopLeft</property>
-      <property name="ContentVisible">true</property>
-      <property name="HighlightFocusedItem">Default</property>
-      <property name="TrimClientAreaToControl">true</property>
-      <property name="ContentVertAlignment">Default</property>
-      <property name="ContentHorzAlignment">Default</property>
-      <property name="AllowGlyphSkinning">Default</property>
-      <property name="OptionsCustomization" isnull="true" iskey="true">
-        <property name="AllowDrag">Default</property>
-        <property name="AllowDrop">Default</property>
-      </property>
-      <property name="OptionsTableLayoutItem" isnull="true" iskey="true">
-        <property name="RowIndex">0</property>
-        <property name="RowSpan">1</property>
-        <property name="ColumnIndex">0</property>
-        <property name="ColumnSpan">1</property>
-      </property>
-      <property name="OptionsToolTip" isnull="true" iskey="true">
-        <property name="ToolTip" />
-        <property name="ToolTipTitle" />
-        <property name="ToolTipIconType">None</property>
-        <property name="ImmediateToolTip">false</property>
-        <property name="AllowHtmlString">Default</property>
-        <property name="IconToolTip" />
-        <property name="IconToolTipTitle" />
-        <property name="IconToolTipIconType">None</property>
-        <property name="EnableIconToolTip">true</property>
-        <property name="IconImmediateToolTip">false</property>
-        <property name="IconAllowHtmlString">Default</property>
-      </property>
-      <property name="Name">CatalogItemsGrid</property>
-      <property name="ParentName">Root</property>
-      <property name="TextVisible">false</property>
-      <property name="TextSize">@1,Width=0@1,Height=0</property>
-      <property name="Location">@1,X=0@3,Y=370</property>
-      <property name="Size">@3,Width=974@3,Height=138</property>
-      <property name="ShowInCustomizationForm">true</property>
-      <property name="Text">Items</property>
-      <property name="CustomizationFormText">CatalogItemsGrid</property>
-      <property name="StartNewLine">false</property>
-      <property name="Visibility">Always</property>
-      <property name="TextLocation">Default</property>
-    </property>
-    <property name="Item3" isnull="true" iskey="true">
       <property name="TypeName">AtlasSystems.Scripting.UI.AddonControls.WebView2Browser</property>
-      <property name="ControlName">Catalog</property>
+      <property name="ControlName">WebView2Catalog</property>
       <property name="AllowHtmlStringInCaption">false</property>
       <property name="TextAlignMode">CustomSize</property>
       <property name="SizeConstraintsType">Default</property>
@@ -185,15 +128,72 @@
         <property name="IconImmediateToolTip">false</property>
         <property name="IconAllowHtmlString">Default</property>
       </property>
-      <property name="Name">Catalog</property>
+      <property name="Name">WebView2Catalog</property>
       <property name="ParentName">Root</property>
       <property name="TextVisible">false</property>
       <property name="TextSize">@1,Width=0@1,Height=0</property>
       <property name="Location">@1,X=0@1,Y=0</property>
-      <property name="Size">@3,Width=974@3,Height=370</property>
+      <property name="Size">@4,Width=1900@3,Height=562</property>
       <property name="ShowInCustomizationForm">true</property>
       <property name="Text">Catalog Browser</property>
-      <property name="CustomizationFormText">Catalog</property>
+      <property name="CustomizationFormText">WebView2Catalog</property>
+      <property name="StartNewLine">false</property>
+      <property name="Visibility">Always</property>
+      <property name="TextLocation">Default</property>
+    </property>
+    <property name="Item3" isnull="true" iskey="true">
+      <property name="TypeName">AtlasSystems.Scripting.UI.AddonControls.Grid</property>
+      <property name="ControlName">CatalogItemsGrid</property>
+      <property name="AllowHtmlStringInCaption">false</property>
+      <property name="TextAlignMode">UseParentOptions</property>
+      <property name="SizeConstraintsType">Default</property>
+      <property name="Image" isnull="true" />
+      <property name="ImageIndex">-1</property>
+      <property name="ImageAlignment">MiddleLeft</property>
+      <property name="ImageToTextDistance">5</property>
+      <property name="SvgImage" isnull="true" />
+      <property name="SvgImageSize">@1,Width=0@1,Height=0</property>
+      <property name="MaxSize">@1,Width=0@1,Height=0</property>
+      <property name="MinSize">@3,Width=114@2,Height=22</property>
+      <property name="ControlAlignment">TopLeft</property>
+      <property name="ContentVisible">true</property>
+      <property name="HighlightFocusedItem">Default</property>
+      <property name="TrimClientAreaToControl">true</property>
+      <property name="ContentVertAlignment">Default</property>
+      <property name="ContentHorzAlignment">Default</property>
+      <property name="AllowGlyphSkinning">Default</property>
+      <property name="OptionsCustomization" isnull="true" iskey="true">
+        <property name="AllowDrag">Default</property>
+        <property name="AllowDrop">Default</property>
+      </property>
+      <property name="OptionsTableLayoutItem" isnull="true" iskey="true">
+        <property name="RowIndex">0</property>
+        <property name="RowSpan">1</property>
+        <property name="ColumnIndex">0</property>
+        <property name="ColumnSpan">1</property>
+      </property>
+      <property name="OptionsToolTip" isnull="true" iskey="true">
+        <property name="ToolTip" />
+        <property name="ToolTipTitle" />
+        <property name="ToolTipIconType">None</property>
+        <property name="ImmediateToolTip">false</property>
+        <property name="AllowHtmlString">Default</property>
+        <property name="IconToolTip" />
+        <property name="IconToolTipTitle" />
+        <property name="IconToolTipIconType">None</property>
+        <property name="EnableIconToolTip">true</property>
+        <property name="IconImmediateToolTip">false</property>
+        <property name="IconAllowHtmlString">Default</property>
+      </property>
+      <property name="Name">CatalogItemsGrid</property>
+      <property name="ParentName">Root</property>
+      <property name="TextVisible">false</property>
+      <property name="TextSize">@1,Width=0@1,Height=0</property>
+      <property name="Location">@1,X=0@3,Y=562</property>
+      <property name="Size">@4,Width=1900@3,Height=257</property>
+      <property name="ShowInCustomizationForm">true</property>
+      <property name="Text">Items</property>
+      <property name="CustomizationFormText">CatalogItemsGrid</property>
       <property name="StartNewLine">false</property>
       <property name="Visibility">Always</property>
       <property name="TextLocation">Default</property>
