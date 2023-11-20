@@ -759,6 +759,8 @@ function SendApiRequest(apiPath, method, parameters, authToken)
         success, result = pcall(WebClientGet, webClient, apiPath);
     end
 
+    webClient:Dispose();
+
     if (success) then
         LogDebug("API call successful");
         LogDebug("Response: " .. result);
