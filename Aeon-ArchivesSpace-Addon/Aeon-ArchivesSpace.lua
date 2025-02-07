@@ -25,10 +25,13 @@ settings.AutoGroupResults = GetSetting("AutoGroupResults");
 local types = {};
 
 luanet.load_assembly("System.Net");
+luanet.load_assembly("System.Windows.Forms");
+
 types["System.Net.WebClient"] = luanet.import_type("System.Net.WebClient");
 types["System.IO.StreamReader"] = luanet.import_type("System.IO.StreamReader");
 types["System.Text.Encoding"] = luanet.import_type("System.Text.Encoding");
 types["System.DBNull"] = luanet.import_type("System.DBNull");
+types["System.Windows.Forms.Application"] = luanet.import_type("System.Windows.Forms.Application");
 
 luanet.load_assembly("System");
 types["System.Collections.Specialized.NameValueCollection"] = luanet.import_type("System.Collections.Specialized.NameValueCollection");
@@ -162,6 +165,10 @@ function Init()
     --AutoSearch will occur after the initial sign in attempt
     LogDebug("Navigating to BaseURL first");
     catalogSearchForm.Browser:Navigate(settings.BaseURL);
+end
+
+function Version()
+	return types["System.Windows.Forms.Application"].ProductVersion;
 end
 
 function WebView2Enabled()
@@ -747,6 +754,8 @@ function SendApiRequest(apiPath, method, parameters, authToken)
     local webClient = types["System.Net.WebClient"]();
 
     webClient.Headers:Clear();
+    -- Add a user-agent for the API request to support ArchivesSpace API hosted by Lyrasis
+    webClient.Headers:Add("user-agent", "AtlasAeon/" .. Version());
     if (authToken ~= nil and authToken ~= "") then
         webClient.Headers:Add("X-ArchivesSpace-Session", authToken);
     end
