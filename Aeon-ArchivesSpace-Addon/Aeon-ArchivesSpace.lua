@@ -755,7 +755,7 @@ function SendApiRequest(apiPath, method, parameters, authToken)
     LogDebug('apiPath: ' .. apiPath);
 
     local webClient = types["System.Net.WebClient"]();
-
+    webClient.Encoding = Types["System.Text.Encoding"].UTF8;
     webClient.Headers:Clear();
     if (authToken ~= nil and authToken ~= "") then
         webClient.Headers:Add("X-ArchivesSpace-Session", authToken);
