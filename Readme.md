@@ -1,6 +1,11 @@
 # Aeon ArchivesSpace Client Addon
 
 ## Version
+
+- 3.0.3:
+    - A UserAgent HTTP Header is sent in API calls to better support ArchivesSapces hosted by Lyrasis.
+    - Better support for ArchivesSpace LibraryHost instances where the AppPrefix is not standard.
+    - Set API to use UTF8 for ArchivesSpace API requests
 - 3.0:
     - Added support for embedded WebView2 browser. The addon will use this browser if it is available (Aeon 5.2+), and will use the embedded Chromium browser otherwise.
 - 2.1:
