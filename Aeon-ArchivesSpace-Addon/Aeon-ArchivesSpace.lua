@@ -762,7 +762,7 @@ function SendApiRequest(apiPath, method, parameters, authToken)
     LogDebug('apiPath: ' .. apiPath);
 
     local webClient = types["System.Net.WebClient"]();
-    webClient.Encoding = Types["System.Text.Encoding"].UTF8;
+    webClient.Encoding = types["System.Text.Encoding"].UTF8;
     webClient.Headers:Clear();
     -- Add a user-agent for the API request to support ArchivesSpace API hosted by Lyrasis
     webClient.Headers:Add("user-agent", "AtlasAeon/" .. Version());
