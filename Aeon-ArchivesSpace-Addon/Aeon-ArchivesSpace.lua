@@ -83,10 +83,20 @@ local archiveSpaceAddonScript = [[
                 var objectUrl = buildObjectUrl(objectId);
                 atlasAddonAsync.executeAddonFunction('NodeChanged', currentRepositoryPath, objectUrl);
 
+                //Try to get the app_prefix to remove any additional web paths from the URL
+                var appPrefix = "/";
+                if (AS) {
+                    appPrefix = AS.app_prefix("");
+                }
+
                 // This Injects the NodeChanged function into the Ajax callback that changes the record pages
                 var originalAjaxThePane = AjaxTree.prototype._ajax_the_pane;
                 AjaxTree.prototype._ajax_the_pane = function(url, params, callback) {
-                    atlasAddonAsync.executeAddonFunction('NodeChanged', currentRepositoryPath, url);
+                    //If the appPrefix is anything other than "/", replace it with just "/"
+                    var updateUrl = url.replace(appPrefix, "/");
+                    updateUrl.startsWith(updateUrl) ? updateUrl : "/" + updateUrl;
+                    atlasAddonAsync.executeAddonFunction('NodeChanged', currentRepositoryPath, updateUrl);
+                    //Preserve the original call using the original ASpace URL parameter
                     originalAjaxThePane.call(this, url, params, callback);
                 };
             }
@@ -752,7 +762,7 @@ function SendApiRequest(apiPath, method, parameters, authToken)
     LogDebug('apiPath: ' .. apiPath);
 
     local webClient = types["System.Net.WebClient"]();
-
+    webClient.Encoding = Types["System.Text.Encoding"].UTF8;
     webClient.Headers:Clear();
     -- Add a user-agent for the API request to support ArchivesSpace API hosted by Lyrasis
     webClient.Headers:Add("user-agent", "AtlasAeon/" .. Version());
