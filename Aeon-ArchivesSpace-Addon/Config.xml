@@ -2,7 +2,7 @@
 <Configuration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
   <Name>ArchivesSpace Interface</Name>
   <Author>Atlas Systems, Inc.</Author>
-  <Version>3.0.3</Version>
+  <Version>3.2.0</Version>
   <Active>True</Active>
   <Type>Addon</Type>
   <Description>This addon performs searches in ArchivesSpace using the staff interface. This addon supports ArchivesSpace versions v2.8.0 and later.</Description>
@@ -31,6 +31,12 @@
     </Setting>
     <Setting name="AutoGroupResults" value="false" type="boolean">
       <Description>Specifies whether the results grid should be grouped automatically. The table will be grouped by the "Volume" column, which refers to either the instance's top container display string or digital object title.</Description>
+    </Setting>
+    <Setting name="ImportDataSeparator" value=" " type="string">
+      <Description>Specifies the separator to be used when importing concatenated fields.</Description>
+    </Setting>
+    <Setting name="DefaultRepositoryId" value="" type="string">
+      <Description>Specifies the default repository to be used when searching.</Description>
     </Setting>
   </Settings>
   <Files>

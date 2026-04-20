@@ -12,6 +12,7 @@ catalogSearchForm.ImportInstanceButton = nil;
 require "Atlas.AtlasHelpers";
 require "Atlas-Addons-Lua-ParseJson.JsonParser";
 require "DataMapping";
+require "Utility";
 
 local settings = {}
 settings.AutoSearch = GetSetting("AutoSearch");
@@ -21,6 +22,8 @@ settings.Username = GetSetting("AS_Username");
 settings.Password = GetSetting("AS_Password");
 settings.AutoSearchPriority = GetSetting("AutoSearchPriority");
 settings.AutoGroupResults = GetSetting("AutoGroupResults");
+settings.ImportDataSeparator = GetSetting("ImportDataSeparator");
+settings.DefaultRepositoryId = GetSetting("DefaultRepositoryId");
 
 local types = {};
 
@@ -70,8 +73,20 @@ local archiveSpaceAddonScript = [[
         }
     }
 
+    function getResourceUri() {
+        var resourceElement = document.querySelector('[id^="resource_"]');
+        if (resourceElement) {
+            var resourceMatch = /resource_(\d+)/.exec(resourceElement.id);
+            if (resourceMatch) {
+                return currentRepositoryPath + '/resources/' + resourceMatch[1];
+            }
+        }
+        return null;
+    }
+
     if (typeof archivesSpaceAddonInitialized === 'undefined') {
         var archivesSpaceAddonInitialized = true;
+        var instanceGridPopulated = false;
         var currentRepositoryPath = /\/repositories\/(\d+)/.exec($(".repo-container > .btn-group > a[href*='/repositories/']")[0].href)[0];
 
         //Sets the currentRecordUri
@@ -89,13 +104,13 @@ local archiveSpaceAddonScript = [[
                     appPrefix = AS.app_prefix("");
                 }
 
-                // This Injects the NodeChanged function into the Ajax callback that changes the record pages
+                // Update the current URI when tree nodes change, without resetting the grid
                 var originalAjaxThePane = AjaxTree.prototype._ajax_the_pane;
                 AjaxTree.prototype._ajax_the_pane = function(url, params, callback) {
                     //If the appPrefix is anything other than "/", replace it with just "/"
                     var updateUrl = url.replace(appPrefix, "/");
                     updateUrl.startsWith(updateUrl) ? updateUrl : "/" + updateUrl;
-                    atlasAddonAsync.executeAddonFunction('NodeChanged', currentRepositoryPath, updateUrl);
+                    atlasAddonAsync.executeAddonFunction('UpdateCurrentUri', currentRepositoryPath, updateUrl);
                     //Preserve the original call using the original ASpace URL parameter
                     originalAjaxThePane.call(this, url, params, callback);
                 };
@@ -103,6 +118,7 @@ local archiveSpaceAddonScript = [[
             else {
                 var selectedResourcePath = window.location.pathname;
                 atlasAddonAsync.executeAddonFunction('NodeChanged', currentRepositoryPath, selectedResourcePath);
+                atlasAddonAsync.executeAddonFunction('PopulateDataGrid');
             }
         }
     else {
@@ -115,7 +131,13 @@ local archiveSpaceAddonScript = [[
         });
         //Watch for the event to signal the details pane has finished loading
         $(document).on('loadedrecordform.aspace', function() {
-            atlasAddonAsync.executeAddonFunction('PopulateDataGrid');
+            if (!instanceGridPopulated) {
+                var resourceUri = getResourceUri();
+                if (resourceUri) {
+                    atlasAddonAsync.executeAddonFunction('PopulateAllInstances', resourceUri);
+                    instanceGridPopulated = true;
+                }
+            }
             atlasAddonAsync.executeAddonFunction('SetCitationImportButtonsEnabled');
         });
     }
@@ -193,11 +215,7 @@ function InitializeLoginPageHandler()
     LogDebug("Initializing Login Page Handler");
     catalogSearchForm.Browser:RegisterPageHandler("custom", "LoginPageLoaded", "PerformLogin", true);
     catalogSearchForm.Browser:RegisterPageHandler("custom", "IsNotSignedIn", "NavigateToLogin", true);
-    if (settings.AutoSearch) then
-        catalogSearchForm.Browser:RegisterPageHandler("custom", "IsSignedIn", "AutoSearchAfterLogin", true);
-    else
-        LogDebug("AutoSearch is disabled. Skipping page page handler registration to perform autosearch functionality.")
-    end
+    catalogSearchForm.Browser:RegisterPageHandler("custom", "IsSignedIn", "SetDefaultRepository", true);
     catalogSearchForm.Browser:RegisterPageHandler("custom", "AlwaysTrue", "InjectScriptBridge", false);
 end
 
@@ -296,14 +314,11 @@ end
 
 function CreateItemsTable()
     local itemsTable = types["System.Data.DataTable"]();
-    itemsTable.Columns:Add("Title");
-    itemsTable.Columns:Add("SubTitle");
-    itemsTable.Columns:Add("CallNumber");
-    itemsTable.Columns:Add("Author");
-    itemsTable.Columns:Add("Volume");
-    itemsTable.Columns:Add("Barcode");
-    itemsTable.Columns:Add("Location");
-
+    for _, mapping in pairs(HostAppInfo.InstanceDataImport) do
+        if mapping.ItemGridColumn then
+            itemsTable.Columns:Add(mapping.ItemGridColumn);
+        end
+    end
     return itemsTable;
 end
 
@@ -385,6 +400,11 @@ function NodeChanged(currentRepositoryPath, selectedResourcePath)
     SetImportButtonsDisabled();
 end
 
+function UpdateCurrentUri(currentRepositoryPath, selectedResourcePath)
+    currentRecordUri = PathCombine(currentRepositoryPath, selectedResourcePath);
+    LogDebug('currentRecordUri = ' .. currentRecordUri);
+end
+
 function SetCitationImportButtonsEnabled()
     if(
         string.match(currentRecordUri, HostAppInfo.PageUri["Resource"]) or
@@ -443,6 +463,10 @@ function PopulateDataGrid()
         availableData["ArchivalObjectTitle"] = ExtractProperty(archivalObject, "title");
         availableData["ResourceTitle"] = ExtractProperty(collection, "title");
         availableData["EadId"] = ExtractProperty(collection,"ead_id");
+        availableData["id_0"] = ExtractProperty(collection, "id_0");
+        availableData["id_1"] = ExtractProperty(collection, "id_1");
+        availableData["id_2"] = ExtractProperty(collection, "id_2");
+        availableData["id_3"] = ExtractProperty(collection, "id_3");
         availableData["Creators"] = ExtractCreators(sessionId, collection);
 
         local itemsDataTable = CreateItemsTable();
@@ -450,12 +474,11 @@ function PopulateDataGrid()
         catalogSearchForm.Grid.GridControl:BeginUpdate();
 
         for _, archivalObjectInstance in ipairs(instances) do
-            
+
             local topContainer = GetTopContainerFromAPI(sessionId, archivalObjectInstance);
             local digitalObject = GetDigitalObjectFromAPI(sessionId, archivalObjectInstance);
 
-            availableData["ArchivalObjectInstance"] = ExtractArchivalObjectInstanceTitle(archivalObjectInstance, topContainer, digitalObject);
-            availableData["ArchivalObjectInstanceBarcode"] = ExtractArchivalObjectInstanceBarcode(topContainer, digitalObject);
+            PopulateInstanceFields(availableData, archivalObjectInstance, topContainer, digitalObject);
 
             local topContainerHasContainerLocations = (
                 topContainer and
@@ -468,10 +491,82 @@ function PopulateDataGrid()
                 for _, containerLocation in ipairs(topContainer.container_locations) do
                     local location = ArchivesSpaceGetRequest(sessionId, containerLocation.ref);
                     availableData["ArchivalObjectContainerLocation"] = location.title;
+                    PopulateLocationFields(availableData, location);
                     AddRowToItemsTable(itemsDataTable, availableData);
                 end
             else
                 availableData["ArchivalObjectContainerLocation"] = "";
+                PopulateLocationFields(availableData, nil);
+                AddRowToItemsTable(itemsDataTable, availableData);
+            end
+        end
+
+        catalogSearchForm.Grid.GridControl.DataSource = itemsDataTable;
+        catalogSearchForm.Grid.GridControl:EndUpdate();
+
+        catalogSearchForm.Grid.GridControl.Enabled = true;
+        if settings.AutoGroupResults then
+            gridColumns["Volume"]:Group();
+        end
+
+    elseif (string.match(currentRecordUri, HostAppInfo.PageUri["Accession"])) then
+
+        local sessionId = GetSessionId();
+        local accession = ArchivesSpaceGetRequest(sessionId, currentRecordUri);
+
+        if accession == nil then
+            LogDebug("Could not retrieve accession record.");
+            return;
+        end
+
+        local instances = {};
+
+        if accession.instances and (accession.instances ~= JsonParser.NIL) and (#accession.instances > 0) then
+            LogDebug("Mapping Accession instances");
+            instances = accession.instances;
+        else
+            LogDebug("Accession has no instances.");
+            return;
+        end
+
+        local availableData = {};
+        availableData["ArchivalObjectTitle"] = ExtractProperty(accession, "display_string");
+        availableData["ResourceTitle"] = ExtractProperty(accession, "title");
+        availableData["EadId"] = "";
+        availableData["id_0"] = ExtractProperty(accession, "id_0");
+        availableData["id_1"] = ExtractProperty(accession, "id_1");
+        availableData["id_2"] = ExtractProperty(accession, "id_2");
+        availableData["id_3"] = ExtractProperty(accession, "id_3");
+        availableData["Creators"] = ExtractCreators(sessionId, accession);
+
+        local itemsDataTable = CreateItemsTable();
+
+        catalogSearchForm.Grid.GridControl:BeginUpdate();
+
+        for _, accessionInstance in ipairs(instances) do
+
+            local topContainer = GetTopContainerFromAPI(sessionId, accessionInstance);
+            local digitalObject = GetDigitalObjectFromAPI(sessionId, accessionInstance);
+
+            PopulateInstanceFields(availableData, accessionInstance, topContainer, digitalObject);
+
+            local topContainerHasContainerLocations = (
+                topContainer and
+                topContainer.container_locations and
+                topContainer.container_locations ~= JsonParser.NIL and
+                (#topContainer.container_locations > 0)
+            )
+
+            if topContainerHasContainerLocations then
+                for _, containerLocation in ipairs(topContainer.container_locations) do
+                    local location = ArchivesSpaceGetRequest(sessionId, containerLocation.ref);
+                    availableData["ArchivalObjectContainerLocation"] = location.title;
+                    PopulateLocationFields(availableData, location);
+                    AddRowToItemsTable(itemsDataTable, availableData);
+                end
+            else
+                availableData["ArchivalObjectContainerLocation"] = "";
+                PopulateLocationFields(availableData, nil);
                 AddRowToItemsTable(itemsDataTable, availableData);
             end
         end
@@ -486,15 +581,109 @@ function PopulateDataGrid()
     end
 end
 
+function PopulateAllInstances(resourceUri)
+    LogDebug("PopulateAllInstances: " .. resourceUri);
+
+    local sessionId = GetSessionId();
+
+    -- Fetch the resource
+    local collection = ArchivesSpaceGetRequest(sessionId, resourceUri);
+    if collection == nil then
+        LogDebug("Could not retrieve resource.");
+        return;
+    end
+
+    -- Get all record URIs via ordered_records
+    local orderedRecords = ArchivesSpaceGetRequest(sessionId, resourceUri .. "/ordered_records");
+    if orderedRecords == nil or orderedRecords.uris == nil or orderedRecords.uris == JsonParser.NIL then
+        LogDebug("Could not retrieve ordered records.");
+        return;
+    end
+
+    -- Shared resource-level data
+    local sharedData = {};
+    sharedData["ResourceTitle"] = ExtractProperty(collection, "title");
+    sharedData["EadId"] = ExtractProperty(collection, "ead_id");
+    sharedData["id_0"] = ExtractProperty(collection, "id_0");
+    sharedData["id_1"] = ExtractProperty(collection, "id_1");
+    sharedData["id_2"] = ExtractProperty(collection, "id_2");
+    sharedData["id_3"] = ExtractProperty(collection, "id_3");
+    sharedData["Creators"] = ExtractCreators(sessionId, collection);
+
+    local itemsDataTable = CreateItemsTable();
+
+    catalogSearchForm.Grid.GridControl:BeginUpdate();
+
+    for _, record in ipairs(orderedRecords.uris) do
+        local recordUri = record.ref;
+
+        -- Only process archival objects (skip the resource itself)
+        if string.match(recordUri, HostAppInfo.PageUri["ArchivalObject"]) then
+            local archivalObject = ArchivesSpaceGetRequest(sessionId, recordUri);
+
+            if archivalObject == nil then
+                LogDebug("Could not retrieve archival object: " .. recordUri);
+            else
+                local instances = {};
+                if archivalObject.instances and (archivalObject.instances ~= JsonParser.NIL) and (#archivalObject.instances > 0) then
+                    instances = archivalObject.instances;
+                elseif collection and collection.instances and (collection.instances ~= JsonParser.NIL) and (#collection.instances > 0) then
+                    LogDebug("Archival Object has no instances. Using Resource instances.");
+                    instances = collection.instances;
+                end
+
+                local availableData = {};
+                for k, v in pairs(sharedData) do
+                    availableData[k] = v;
+                end
+                availableData["ArchivalObjectTitle"] = ExtractProperty(archivalObject, "title");
+
+                for _, instance in ipairs(instances) do
+                    local topContainer = GetTopContainerFromAPI(sessionId, instance);
+                    local digitalObject = GetDigitalObjectFromAPI(sessionId, instance);
+
+                    PopulateInstanceFields(availableData, instance, topContainer, digitalObject);
+
+                    local topContainerHasContainerLocations = (
+                        topContainer and
+                        topContainer.container_locations and
+                        topContainer.container_locations ~= JsonParser.NIL and
+                        (#topContainer.container_locations > 0)
+                    )
+
+                    if topContainerHasContainerLocations then
+                        for _, containerLocation in ipairs(topContainer.container_locations) do
+                            local location = ArchivesSpaceGetRequest(sessionId, containerLocation.ref);
+                            availableData["ArchivalObjectContainerLocation"] = location.title;
+                            PopulateLocationFields(availableData, location);
+                            AddRowToItemsTable(itemsDataTable, availableData);
+                        end
+                    else
+                        availableData["ArchivalObjectContainerLocation"] = "";
+                        PopulateLocationFields(availableData, nil);
+                        AddRowToItemsTable(itemsDataTable, availableData);
+                    end
+                end
+            end
+        end
+    end
+
+    catalogSearchForm.Grid.GridControl.DataSource = itemsDataTable;
+    catalogSearchForm.Grid.GridControl:EndUpdate();
+
+    catalogSearchForm.Grid.GridControl.Enabled = true;
+    if settings.AutoGroupResults then
+        gridColumns["Volume"]:Group();
+    end
+end
+
 function AddRowToItemsTable(itemsDataTable, availableData)
     local itemRow = itemsDataTable:NewRow();
-    itemRow:set_Item(HostAppInfo.InstanceDataImport["Title"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["Title"].AspaceData]);
-    itemRow:set_Item(HostAppInfo.InstanceDataImport["SubTitle"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["SubTitle"].AspaceData]);
-    itemRow:set_Item(HostAppInfo.InstanceDataImport["CallNumber"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["CallNumber"].AspaceData]);
-    itemRow:set_Item(HostAppInfo.InstanceDataImport["Author"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["Author"].AspaceData]);
-    itemRow:set_Item(HostAppInfo.InstanceDataImport["Volume"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["Volume"].AspaceData]);
-    itemRow:set_Item(HostAppInfo.InstanceDataImport["Barcode"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["Barcode"].AspaceData]);
-    itemRow:set_Item(HostAppInfo.InstanceDataImport["Location"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["Location"].AspaceData]);
+    for _, mapping in pairs(HostAppInfo.InstanceDataImport) do
+        if mapping.ItemGridColumn then
+            itemRow:set_Item(mapping.ItemGridColumn, ResolveASpaceMapping(availableData, mapping.AspaceData));
+        end
+    end
     itemsDataTable.Rows:Add(itemRow);
 end
 
@@ -507,7 +696,7 @@ function ImportInstance_Clicked()
     end
 
     for _, target in pairs(HostAppInfo.InstanceDataImport) do
-        if(importRow:get_Item(target.ItemGridColumn)) then
+        if target.ItemGridColumn and importRow:get_Item(target.ItemGridColumn) then
             LogDebug(target.ItemGridColumn .. ": " .. importRow:get_Item(target.ItemGridColumn));
             ImportField(target.AeonField, importRow:get_Item(target.ItemGridColumn), target.FieldLength);
         end
@@ -544,11 +733,25 @@ function ImportCitation_Clicked()
     end
 
     for _, target in pairs(mappings) do
+        local logAspaceFieldNames = "";
         if availableData[target.AspaceData] then
-            LogDebug(target.AspaceData .. ": " .. availableData[target.AspaceData]);
+            if type(target.AspaceData) == "table" then
+                for i=1, #target.AspaceData do
+                    if logAspaceFieldNames == "" then
+                        logAspaceFieldNames = target.AspaceData[i];
+                    else
+                        logAspaceFieldNames = logAspaceFieldNames .. settings.ImportDataSeparator .. target.AspaceData[i];
+                    end
+                end
+            else
+                logAspaceFieldNames = target.AspaceData;
+            end
+
+            local aspaceData = ResolveASpaceMapping(availableData, target.AspaceData);
+            LogDebug(logAspaceFieldNames .. ": " .. aspaceData);
             ImportField(target.AeonField, availableData[target.AspaceData], target.FieldLength);
         else
-            LogDebug("Could not import " .. target.AspaceData);
+            LogDebug("Could not import " .. logAspaceFieldNames);
         end
     end
 
@@ -646,6 +849,24 @@ function ExtractArchivalObjectInstanceBarcode(topContainer, digitalObject)
     return barcode;
 end
 
+function PopulateInstanceFields(availableData, instance, topContainer, digitalObject)
+    availableData["ArchivalObjectInstance"] = ExtractArchivalObjectInstanceTitle(instance, topContainer, digitalObject);
+    availableData["ArchivalObjectInstanceBarcode"] = ExtractArchivalObjectInstanceBarcode(topContainer, digitalObject);
+    availableData["InstanceType"] = ExtractProperty(instance, "instance_type") or "";
+
+    local subContainer = (instance.sub_container ~= nil and instance.sub_container ~= JsonParser.NIL) and instance.sub_container or nil;
+    availableData["ContainerChildType"] = ExtractProperty(subContainer, "type_2") or "";
+    availableData["ContainerChildIndicator"] = ExtractProperty(subContainer, "indicator_2") or "";
+    availableData["ContainerGrandchildType"] = ExtractProperty(subContainer, "type_3") or "";
+    availableData["ContainerGrandchildIndicator"] = ExtractProperty(subContainer, "indicator_3") or "";
+
+    availableData["TopContainerType"] = ExtractProperty(topContainer, "type") or "";
+    availableData["TopContainerIndicator"] = ExtractProperty(topContainer, "indicator") or "";
+    local restricted = ExtractProperty(topContainer, "restricted");
+    availableData["TopContainerRestricted"] = (type(restricted) == "boolean") and tostring(restricted) or (restricted or "");
+    availableData["InternalNote"] = ExtractProperty(topContainer, "internal_note") or "";
+end
+
 function ExtractProperty(object, propery)
     if object then
         return EmptyStringIfNil(object[propery]);
@@ -657,6 +878,21 @@ function ExtractSubproperty(object, property, subproperty)
         local prop = ExtractProperty(object, property);
         return EmptyStringIfNil(prop[subproperty]);
     end
+end
+
+function PopulateLocationFields(availableData, location)
+    availableData["LocationBuilding"] = ExtractProperty(location, "building");
+    availableData["LocationFloor"] = ExtractProperty(location, "floor");
+    availableData["LocationRoom"] = ExtractProperty(location, "room");
+    availableData["LocationArea"] = ExtractProperty(location, "area");
+    availableData["LocationBarcode"] = ExtractProperty(location, "barcode");
+    availableData["LocationClassification"] = ExtractProperty(location, "classification");
+    availableData["LocationCoordinate1Label"] = ExtractProperty(location, "coordinate_1_label");
+    availableData["LocationCoordinate1Indicator"] = ExtractProperty(location, "coordinate_1_indicator");
+    availableData["LocationCoordinate2Label"] = ExtractProperty(location, "coordinate_2_label");
+    availableData["LocationCoordinate2Indicator"] = ExtractProperty(location, "coordinate_2_indicator");
+    availableData["LocationCoordinate3Label"] = ExtractProperty(location, "coordinate_3_label");
+    availableData["LocationCoordinate3Indicator"] = ExtractProperty(location, "coordinate_3_indicator");
 end
 
 function ExtractCreators(sessionId, collection)
@@ -685,7 +921,7 @@ end
 
 function ExtractCreatorName(creatorRecord)
     if creatorRecord then
-        local creatorName = EmptyStringIfNil(creatorRecord.names[1].primary_name);
+        local creatorName = EmptyStringIfNil(creatorRecord.names[1].sort_name);
         LogDebug("Creator Name = " .. creatorName);
         return creatorName;
     end
@@ -745,8 +981,73 @@ end
 
 function ImportField(target, fieldValue, targetSize)
     if ((fieldValue ~= nil) and (fieldValue ~= "") and (fieldValue ~= types["System.DBNull"].Value)) then
-        SetFieldValue("Transaction", target, Truncate(fieldValue, targetSize));
+        if target:find("^CustomFields%.") then
+            local shortName = target:sub(14);
+            SetFieldValue("Transaction.CustomFields", shortName, Truncate(fieldValue, targetSize));
+        else
+            SetFieldValue("Transaction", target, Truncate(fieldValue, targetSize));
+        end
     end
+end
+
+-- Checks if a mapping is a table, which indicates multiple values that should be concatenated and imported to a single field.
+-- Returns the concatenated values if the mapping is a table, and a single value otherwise.
+function ResolveASpaceMapping(availableData, dataMapping)
+    local function ResolveNestedMapping(mapping)
+        if mapping:find("%.") then
+            local mappingParts = Utility.StringSplit("%.", mapping);
+
+            local runningData = nil;
+            -- Resolve mapping at each level until we get to the bottom.
+            for i=1, #mappingParts do
+                if i == 1 then
+                    runningData = availableData[mappingParts[i]];
+                else
+                    -- Nil-check before indexing
+                    if runningData == nil or runningData == JsonParser.NIL then
+                        return nil;
+                    end
+                    runningData = runningData[mappingParts[i]];
+                end
+            end
+
+            -- Final check for JsonParser.NIL
+            if runningData == JsonParser.NIL then
+                return nil;
+            end
+
+            return Utility.Trim(runningData);
+        end
+
+        local resolvedMapping = availableData[mapping];
+        if resolvedMapping == JsonParser.NIL then
+            return nil;
+        end
+
+        return Utility.Trim(resolvedMapping);
+    end
+
+    if type(dataMapping) == "table" then
+        local fieldValues = {};
+        for i=1, #dataMapping do
+            if not IsNilOrBlank(dataMapping[i]) then
+                local fieldValue;
+                if type(dataMapping[i]) == "table" then
+                    fieldValue = ResolveASpaceMapping(availableData, dataMapping[i]);
+                else
+                    fieldValue = ResolveNestedMapping(dataMapping[i]);
+                end
+
+                if not IsNilOrBlank(fieldValue) then
+                    fieldValues[#fieldValues+1] = fieldValue;
+                end
+            end
+        end
+
+        return table.concat(fieldValues, settings.ImportDataSeparator);
+    end
+
+    return ResolveNestedMapping(dataMapping);
 end
 
 function EmptyStringIfNil(value)
@@ -755,6 +1056,14 @@ function EmptyStringIfNil(value)
     else
         return value;
     end
+end
+
+function IsNilOrBlank(str)
+    if not str or str == JsonParser.NIL or str == "" then
+        return true;
+    end;
+
+    return false;
 end
 
 function SendApiRequest(apiPath, method, parameters, authToken)
@@ -825,6 +1134,38 @@ function NavigateToLogin()
     LogDebug("Navigating to login page");
     local loginUrl = PathCombine(settings.BaseURL,"?login")
     catalogSearchForm.Browser:Navigate(loginUrl);
+end
+
+function SetDefaultRepository()
+    LogDebug("Setting default repository to repository ID " .. settings.DefaultRepositoryId);
+
+    local setDefaultRepositoryScript = [[
+        (function(defaultRepositoryId) {
+            var repositoryIdSelect = document.getElementById('id');
+
+            if (!(repositoryIdSelect)) {
+                console.log('Unable to find repository ID select.');
+            }
+
+            repositoryIdSelect.value = defaultRepositoryId;
+            
+            var setRepositoryButtonXPath = '(//button[text()="Select Repository"])[2]';
+            var setRepositoryButton = document.evaluate(setRepositoryButtonXPath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+
+            if (!setRepositoryButton) {
+                console.log('Unable to find button for setting default repository.');
+            }
+            
+            setRepositoryButton.click();
+        })
+    ]];
+
+    if (settings.AutoSearch) then
+        catalogSearchForm.Browser:RegisterPageHandler("custom", "IsSignedIn", "AutoSearchAfterLogin", true);
+    else
+        LogDebug("AutoSearch is disabled. Skipping page page handler registration to perform autosearch functionality.")
+    end
+    catalogSearchForm.Browser:ExecuteScript(setDefaultRepositoryScript, { settings.DefaultRepositoryId } );
 end
 
 function AutoSearchAfterLogin()
@@ -1021,4 +1362,26 @@ function ParseCSVLine(line,sep)
         end
     end
     return res;
+end
+
+function GetWebExceptionMessage(exception)
+	local message = "";
+
+	if exception and exception.Message then
+		message = exception.Message;
+		if (exception.InnerException) then
+			message = message .. "\r\n" .. GetWebExceptionMessage(exception.InnerException);
+
+			if exception.InnerException.Response and exception.InnerException.Response ~= "Response" then
+				-- This is necessary to get the response body from exceptions thrown by WebClients.
+				local streamReader = types["System.IO.StreamReader"](exception.InnerException.Response:GetResponseStream());
+				local responseContent = streamReader:ReadToEnd();
+				LogDebug("Web exception response: \r\n" .. responseContent);
+			end
+		end
+	elseif exception then
+		message = exception;
+	end
+
+	return message;
 end
