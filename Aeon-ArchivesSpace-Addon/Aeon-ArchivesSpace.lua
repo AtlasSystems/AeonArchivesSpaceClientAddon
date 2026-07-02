@@ -241,82 +241,32 @@ function BuildItemsGrid()
     gridView.OptionsBehavior.AutoExpandAllGroups = true;
     gridView.OptionsBehavior.Editable = false;
 
-    -- Item Grid Column Settings
+    -- Build grid columns from DataMapping configuration
     local gridColumn;
-    gridColumn = gridView.Columns:Add();
-    gridColumn.Caption = "Title";
-    gridColumn.FieldName = "Title";
-    gridColumn.Name = "gridColumnTitle";
-    gridColumn.Visible = true;
-    gridColumn.OptionsColumn.ReadOnly = true;
-    gridColumn.Width = 50;
-    gridColumns["Title"] = gridColumn;
+    for pluginField, caption in pairs(HostAppInfo.GridColumns) do
+        gridColumn = gridView.Columns:Add();
+        gridColumn.Caption = caption;
+        gridColumn.FieldName = pluginField;
+        gridColumn.Name = "gridColumn" .. caption:gsub(" ", "");
+        gridColumn.Visible = true;
+        gridColumn.OptionsColumn.ReadOnly = true;
+        gridColumn.Width = 50;
+        gridColumns[pluginField] = gridColumn;
+    end
 
-    gridColumn = gridView.Columns:Add();
-    gridColumn.Caption = "SubTitle";
-    gridColumn.FieldName = "SubTitle";
-    gridColumn.Name = "gridColumnSubTitle";
-    gridColumn.Visible = true;
-    gridColumn.OptionsColumn.ReadOnly = true;
-    gridColumn.Width = 50;
-    gridColumns["SubTitle"] = gridColumn;
-
-    gridColumn = gridView.Columns:Add();
-    gridColumn.Caption = "Call Number";
-    gridColumn.FieldName = "Call Number";
-    gridColumn.Name = "gridColumnCallNumber";
-    gridColumn.Visible = true;
-    gridColumn.OptionsColumn.ReadOnly = true;
-    gridColumn.Width = 50;
-    gridColumns["Call Number"] = gridColumn;
-
-    gridColumn = gridView.Columns:Add();
-    gridColumn.Caption = "Author";
-    gridColumn.FieldName = "Author";
-    gridColumn.Name = "gridColumnAuthor";
-    gridColumn.Visible = true;
-    gridColumn.OptionsColumn.ReadOnly = true;
-    gridColumn.Width = 50;
-    gridColumns["Author"] = gridColumn;
-
-    gridColumn = gridView.Columns:Add();
-    gridColumn.Caption = "Volume";
-    gridColumn.FieldName = "Volume";
-    gridColumn.Name = "gridColumnVolume";
-    gridColumn.Visible = true;
-    gridColumn.OptionsColumn.ReadOnly = true;
-    gridColumn.Width = 50;
-    gridColumns["Volume"] = gridColumn;
-
-    gridColumn = gridView.Columns:Add();
-    gridColumn.Caption = "Barcode";
-    gridColumn.FieldName = "Barcode";
-    gridColumn.Name = "gridColumnBarcode";
-    gridColumn.Visible = true;
-    gridColumn.OptionsColumn.ReadOnly = true;
-    gridColumn.Width = 50;
-    gridColumns["Barcode"] = gridColumn;
-
-    gridColumn = gridView.Columns:Add();
-    gridColumn.Caption = "Location";
-    gridColumn.FieldName = "Location";
-    gridColumn.Name = "gridColumnLocation";
-    gridColumn.Visible = true;
-    gridColumn.OptionsColumn.ReadOnly = true;
-    gridColumn.Width = 50;
-    gridColumns["Location"] = gridColumn;
-
-    catalogSearchForm.Grid.GridControl.DataSource = CreateItemsTable();
+    catalogSearchForm.Grid.GridControl.DataSource = CreateItemsTable({});
 
     gridControl:EndUpdate();
     gridView:add_FocusedRowChanged(ItemsGridFocusedRowChanged);
 end
 
-function CreateItemsTable()
+function CreateItemsTable(fieldNames)
     local itemsTable = types["System.Data.DataTable"]();
-    for _, mapping in pairs(HostAppInfo.InstanceDataImport) do
-        if mapping.ItemGridColumn then
-            itemsTable.Columns:Add(mapping.ItemGridColumn);
+    if fieldNames then
+        for _, name in ipairs(fieldNames) do
+            if not itemsTable.Columns:Contains(name) then
+                itemsTable.Columns:Add(name);
+            end
         end
     end
     return itemsTable;
@@ -432,9 +382,88 @@ end
 
 function ResetDataGrid()
     if(catalogSearchForm.Grid.GridControl.DataSource) then
-        catalogSearchForm.Grid.GridControl.DataSource = CreateItemsTable();
+        catalogSearchForm.Grid.GridControl.DataSource = CreateItemsTable({});
         catalogSearchForm.Grid.GridControl.Enabled = false;
     end
+end
+
+function GetPluginEndpointUrl(recordUri)
+    local repoId, recordId;
+
+    repoId, recordId = string.match(recordUri, "repositories/(%d+)/archival_objects/(%d+)");
+    if repoId and recordId then
+        return "/repositories/" .. repoId .. "/aeon/archival_objects/" .. recordId;
+    end
+
+    repoId, recordId = string.match(recordUri, "repositories/(%d+)/resources/(%d+)");
+    if repoId and recordId then
+        return "/repositories/" .. repoId .. "/aeon/resources/" .. recordId;
+    end
+
+    repoId, recordId = string.match(recordUri, "repositories/(%d+)/accessions/(%d+)");
+    if repoId and recordId then
+        return "/repositories/" .. repoId .. "/aeon/accessions/" .. recordId;
+    end
+
+    repoId, recordId = string.match(recordUri, "repositories/(%d+)/digital_objects/(%d+)");
+    if repoId and recordId then
+        return "/repositories/" .. repoId .. "/aeon/digital_objects/" .. recordId;
+    end
+
+    return nil;
+end
+
+function GetPluginData(sessionId, recordUri)
+    local pluginUrl = GetPluginEndpointUrl(recordUri);
+    if pluginUrl == nil then
+        return nil;
+    end
+    return ArchivesSpaceGetRequest(sessionId, pluginUrl);
+end
+
+function IsValidAeonField(fieldName)
+    local success, _ = pcall(GetFieldValue, "Transaction", fieldName);
+    return success;
+end
+
+function PopulateInstanceFieldsFromPlugin(availableData, instance)
+    if instance == nil then return end
+
+    for k, v in pairs(instance) do
+        if type(v) == "string" or type(v) == "number" or type(v) == "boolean" then
+            availableData[k] = tostring(v);
+        end
+    end
+end
+
+function CollectFieldNames(pluginData)
+    local fieldSet = {};
+
+    -- Always include grid column fields so the grid can bind to them
+    for pluginField, _ in pairs(HostAppInfo.GridColumns) do
+        fieldSet[pluginField] = true;
+    end
+
+    if pluginData.fields then
+        for k, _ in pairs(pluginData.fields) do
+            fieldSet[k] = true;
+        end
+    end
+    if pluginData.instances and pluginData.instances ~= JsonParser.NIL then
+        for _, instance in ipairs(pluginData.instances) do
+            for k, v in pairs(instance) do
+                if type(v) == "string" or type(v) == "number" or type(v) == "boolean" then
+                    fieldSet[k] = true;
+                end
+            end
+        end
+    end
+
+    local fieldNames = {};
+    for k, _ in pairs(fieldSet) do
+        fieldNames[#fieldNames + 1] = k;
+    end
+    return fieldNames;
 end
 
 function PopulateDataGrid()
@@ -443,62 +472,50 @@ function PopulateDataGrid()
     if (string.match(currentRecordUri, HostAppInfo.PageUri["ArchivalObject"])) then
 
         local sessionId = GetSessionId();
-        local archivalObject = GetArchivalObject(sessionId, currentRecordUri);
-        local collectionUri = ExtractSubproperty(archivalObject, "resource", "ref");
-        local collection = ArchivesSpaceGetRequest(sessionId, collectionUri);
-        local instances = {};
+        local pluginData = GetPluginData(sessionId, currentRecordUri);
 
-        if archivalObject and archivalObject.instances and (archivalObject.instances ~= JsonParser.NIL) and (#archivalObject.instances > 0) then
-            LogDebug("Mapping Archival Object instances");
-            instances = archivalObject.instances;
-        elseif collection and collection.instances and (collection.instances ~= JsonParser.NIL) and (#collection.instances > 0) then
-            LogDebug("Archival Object has no instances. Mapping Resource instances.");
-            instances = collection.instances;
-        else
-            LogDebug("Neither the current Archival Object nor the current Resource have any instances.");
+        if pluginData == nil then
+            LogDebug("Could not retrieve plugin data.");
+            return;
+        end
+
+        local instances = pluginData.instances;
+
+        -- Fallback to resource instances if the AO has none
+        if instances == nil or instances == JsonParser.NIL or #instances == 0 then
+            LogDebug("Archival Object has no instances. Checking parent resource.");
+            local archivalObject = ArchivesSpaceGetRequest(sessionId, currentRecordUri);
+            local resourceUri = ExtractSubproperty(archivalObject, "resource", "ref");
+            if resourceUri then
+                local resourcePluginData = GetPluginData(sessionId, resourceUri);
+                if resourcePluginData and resourcePluginData.instances and
+                   resourcePluginData.instances ~= JsonParser.NIL and #resourcePluginData.instances > 0 then
+                    LogDebug("Using Resource instances.");
+                    instances = resourcePluginData.instances;
+                end
+            end
+        end
+
+        if instances == nil or instances == JsonParser.NIL or #instances == 0 then
+            LogDebug("Neither the current Archival Object nor the parent Resource have any instances.");
             return;
         end
 
         local availableData = {};
-        availableData["ArchivalObjectTitle"] = ExtractProperty(archivalObject, "title");
-        availableData["ResourceTitle"] = ExtractProperty(collection, "title");
-        availableData["EadId"] = ExtractProperty(collection,"ead_id");
-        availableData["id_0"] = ExtractProperty(collection, "id_0");
-        availableData["id_1"] = ExtractProperty(collection, "id_1");
-        availableData["id_2"] = ExtractProperty(collection, "id_2");
-        availableData["id_3"] = ExtractProperty(collection, "id_3");
-        availableData["Creators"] = ExtractCreators(sessionId, collection);
+        if pluginData.fields then
+            for k, v in pairs(pluginData.fields) do
+                if type(v) == "string" or type(v) == "number" or type(v) == "boolean" then
+                    availableData[k] = tostring(v);
+                end
+            end
+        end
 
-        local itemsDataTable = CreateItemsTable();
-
+        local itemsDataTable = CreateItemsTable(CollectFieldNames(pluginData));
         catalogSearchForm.Grid.GridControl:BeginUpdate();
 
-        for _, archivalObjectInstance in ipairs(instances) do
-
-            local topContainer = GetTopContainerFromAPI(sessionId, archivalObjectInstance);
-            local digitalObject = GetDigitalObjectFromAPI(sessionId, archivalObjectInstance);
-
-            PopulateInstanceFields(availableData, archivalObjectInstance, topContainer, digitalObject);
-
-            local topContainerHasContainerLocations = (
-                topContainer and
-                topContainer.container_locations and
-                topContainer.container_locations ~= JsonParser.NIL and
-                (#topContainer.container_locations > 0)
-            )
-
-            if topContainerHasContainerLocations then
-                for _, containerLocation in ipairs(topContainer.container_locations) do
-                    local location = ArchivesSpaceGetRequest(sessionId, containerLocation.ref);
-                    availableData["ArchivalObjectContainerLocation"] = location.title;
-                    PopulateLocationFields(availableData, location);
-                    AddRowToItemsTable(itemsDataTable, availableData);
-                end
-            else
-                availableData["ArchivalObjectContainerLocation"] = "";
-                PopulateLocationFields(availableData, nil);
-                AddRowToItemsTable(itemsDataTable, availableData);
-            end
+        for _, instance in ipairs(instances) do
+            PopulateInstanceFieldsFromPlugin(availableData, instance);
+            AddRowToItemsTable(itemsDataTable, availableData);
         end
 
         catalogSearchForm.Grid.GridControl.DataSource = itemsDataTable;
@@ -506,69 +523,40 @@ function PopulateDataGrid()
 
         catalogSearchForm.Grid.GridControl.Enabled = true;
         if settings.AutoGroupResults then
-            gridColumns["Volume"]:Group();
+            gridColumns[HostAppInfo.AutoGroupField]:Group();
         end
 
     elseif (string.match(currentRecordUri, HostAppInfo.PageUri["Accession"])) then
 
         local sessionId = GetSessionId();
-        local accession = ArchivesSpaceGetRequest(sessionId, currentRecordUri);
+        local pluginData = GetPluginData(sessionId, currentRecordUri);
 
-        if accession == nil then
-            LogDebug("Could not retrieve accession record.");
+        if pluginData == nil then
+            LogDebug("Could not retrieve plugin data.");
             return;
         end
 
-        local instances = {};
-
-        if accession.instances and (accession.instances ~= JsonParser.NIL) and (#accession.instances > 0) then
-            LogDebug("Mapping Accession instances");
-            instances = accession.instances;
-        else
+        local instances = pluginData.instances;
+        if instances == nil or instances == JsonParser.NIL or #instances == 0 then
             LogDebug("Accession has no instances.");
             return;
         end
 
         local availableData = {};
-        availableData["ArchivalObjectTitle"] = ExtractProperty(accession, "display_string");
-        availableData["ResourceTitle"] = ExtractProperty(accession, "title");
-        availableData["EadId"] = "";
-        availableData["id_0"] = ExtractProperty(accession, "id_0");
-        availableData["id_1"] = ExtractProperty(accession, "id_1");
-        availableData["id_2"] = ExtractProperty(accession, "id_2");
-        availableData["id_3"] = ExtractProperty(accession, "id_3");
-        availableData["Creators"] = ExtractCreators(sessionId, accession);
+        if pluginData.fields then
+            for k, v in pairs(pluginData.fields) do
+                if type(v) == "string" or type(v) == "number" or type(v) == "boolean" then
+                    availableData[k] = tostring(v);
+                end
+            end
+        end
 
-        local itemsDataTable = CreateItemsTable();
-
+        local itemsDataTable = CreateItemsTable(CollectFieldNames(pluginData));
         catalogSearchForm.Grid.GridControl:BeginUpdate();
 
-        for _, accessionInstance in ipairs(instances) do
-
-            local topContainer = GetTopContainerFromAPI(sessionId, accessionInstance);
-            local digitalObject = GetDigitalObjectFromAPI(sessionId, accessionInstance);
-
-            PopulateInstanceFields(availableData, accessionInstance, topContainer, digitalObject);
-
-            local topContainerHasContainerLocations = (
-                topContainer and
-                topContainer.container_locations and
-                topContainer.container_locations ~= JsonParser.NIL and
-                (#topContainer.container_locations > 0)
-            )
-
-            if topContainerHasContainerLocations then
-                for _, containerLocation in ipairs(topContainer.container_locations) do
-                    local location = ArchivesSpaceGetRequest(sessionId, containerLocation.ref);
-                    availableData["ArchivalObjectContainerLocation"] = location.title;
-                    PopulateLocationFields(availableData, location);
-                    AddRowToItemsTable(itemsDataTable, availableData);
-                end
-            else
-                availableData["ArchivalObjectContainerLocation"] = "";
-                PopulateLocationFields(availableData, nil);
-                AddRowToItemsTable(itemsDataTable, availableData);
-            end
+        for _, instance in ipairs(instances) do
+            PopulateInstanceFieldsFromPlugin(availableData, instance);
+            AddRowToItemsTable(itemsDataTable, availableData);
         end
 
         catalogSearchForm.Grid.GridControl.DataSource = itemsDataTable;
@@ -576,7 +564,7 @@ function PopulateDataGrid()
 
         catalogSearchForm.Grid.GridControl.Enabled = true;
         if settings.AutoGroupResults then
-            gridColumns["Volume"]:Group();
+            gridColumns[HostAppInfo.AutoGroupField]:Group();
         end
     end
 end
@@ -586,10 +574,10 @@ function PopulateAllInstances(resourceUri)
 
     local sessionId = GetSessionId();
 
-    -- Fetch the resource
-    local collection = ArchivesSpaceGetRequest(sessionId, resourceUri);
-    if collection == nil then
-        LogDebug("Could not retrieve resource.");
+    -- Get resource-level data from plugin
+    local resourcePluginData = GetPluginData(sessionId, resourceUri);
+    if resourcePluginData == nil then
+        LogDebug("Could not retrieve resource plugin data.");
         return;
     end
 
@@ -602,16 +590,15 @@ function PopulateAllInstances(resourceUri)
 
     -- Shared resource-level data
     local sharedData = {};
-    sharedData["ResourceTitle"] = ExtractProperty(collection, "title");
-    sharedData["EadId"] = ExtractProperty(collection, "ead_id");
-    sharedData["id_0"] = ExtractProperty(collection, "id_0");
-    sharedData["id_1"] = ExtractProperty(collection, "id_1");
-    sharedData["id_2"] = ExtractProperty(collection, "id_2");
-    sharedData["id_3"] = ExtractProperty(collection, "id_3");
-    sharedData["Creators"] = ExtractCreators(sessionId, collection);
+    if resourcePluginData.fields then
+        for k, v in pairs(resourcePluginData.fields) do
+            if type(v) == "string" or type(v) == "number" or type(v) == "boolean" then
+                sharedData[k] = tostring(v);
+            end
+        end
+    end
 
-    local itemsDataTable = CreateItemsTable();
-
+    local itemsDataTable = CreateItemsTable(CollectFieldNames(resourcePluginData));
     catalogSearchForm.Grid.GridControl:BeginUpdate();
 
     for _, record in ipairs(orderedRecords.uris) do
@@ -619,48 +606,33 @@ function PopulateAllInstances(resourceUri)
 
         -- Only process archival objects (skip the resource itself)
         if string.match(recordUri, HostAppInfo.PageUri["ArchivalObject"]) then
-            local archivalObject = ArchivesSpaceGetRequest(sessionId, recordUri);
+            local pluginData = GetPluginData(sessionId, recordUri);
 
-            if archivalObject == nil then
-                LogDebug("Could not retrieve archival object: " .. recordUri);
+            if pluginData == nil then
+                LogDebug("Could not retrieve plugin data for: " .. recordUri);
             else
-                local instances = {};
-                if archivalObject.instances and (archivalObject.instances ~= JsonParser.NIL) and (#archivalObject.instances > 0) then
-                    instances = archivalObject.instances;
-                elseif collection and collection.instances and (collection.instances ~= JsonParser.NIL) and (#collection.instances > 0) then
-                    LogDebug("Archival Object has no instances. Using Resource instances.");
-                    instances = collection.instances;
-                end
-
                 local availableData = {};
                 for k, v in pairs(sharedData) do
                     availableData[k] = v;
                 end
-                availableData["ArchivalObjectTitle"] = ExtractProperty(archivalObject, "title");
+                -- Override with AO-specific title
+                if pluginData.fields and pluginData.fields["ItemTitle"] then
+                    availableData["ItemTitle"] = pluginData.fields["ItemTitle"];
+                end
 
-                for _, instance in ipairs(instances) do
-                    local topContainer = GetTopContainerFromAPI(sessionId, instance);
-                    local digitalObject = GetDigitalObjectFromAPI(sessionId, instance);
+                local instances = pluginData.instances;
 
-                    PopulateInstanceFields(availableData, instance, topContainer, digitalObject);
+                -- Fallback to resource instances if the AO has none
+                if (instances == nil or instances == JsonParser.NIL or #instances == 0) and
+                   resourcePluginData.instances and resourcePluginData.instances ~= JsonParser.NIL and
+                   #resourcePluginData.instances > 0 then
+                    LogDebug("Archival Object has no instances. Using Resource instances.");
+                    instances = resourcePluginData.instances;
+                end
 
-                    local topContainerHasContainerLocations = (
-                        topContainer and
-                        topContainer.container_locations and
-                        topContainer.container_locations ~= JsonParser.NIL and
-                        (#topContainer.container_locations > 0)
-                    )
-
-                    if topContainerHasContainerLocations then
-                        for _, containerLocation in ipairs(topContainer.container_locations) do
-                            local location = ArchivesSpaceGetRequest(sessionId, containerLocation.ref);
-                            availableData["ArchivalObjectContainerLocation"] = location.title;
-                            PopulateLocationFields(availableData, location);
-                            AddRowToItemsTable(itemsDataTable, availableData);
-                        end
-                    else
-                        availableData["ArchivalObjectContainerLocation"] = "";
-                        PopulateLocationFields(availableData, nil);
+                if instances and instances ~= JsonParser.NIL and #instances > 0 then
+                    for _, instance in ipairs(instances) do
+                        PopulateInstanceFieldsFromPlugin(availableData, instance);
                         AddRowToItemsTable(itemsDataTable, availableData);
                     end
                 end
@@ -679,9 +651,11 @@ end
 
 function AddRowToItemsTable(itemsDataTable, availableData)
     local itemRow = itemsDataTable:NewRow();
-    for _, mapping in pairs(HostAppInfo.InstanceDataImport) do
-        if mapping.ItemGridColumn then
-            itemRow:set_Item(mapping.ItemGridColumn, ResolveASpaceMapping(availableData, mapping.AspaceData));
+    for i = 0, itemsDataTable.Columns.Count - 1 do
+        local colName = itemsDataTable.Columns[i].ColumnName;
+        local value = availableData[colName];
+        if value ~= nil then
+            itemRow:set_Item(colName, tostring(value));
         end
     end
     itemsDataTable.Rows:Add(itemRow);
@@ -695,10 +669,17 @@ function ImportInstance_Clicked()
         return;
     end
 
-    for _, target in pairs(HostAppInfo.InstanceDataImport) do
-        if target.ItemGridColumn and importRow:get_Item(target.ItemGridColumn) then
-            LogDebug(target.ItemGridColumn .. ": " .. importRow:get_Item(target.ItemGridColumn));
-            ImportField(target.AeonField, importRow:get_Item(target.ItemGridColumn), target.FieldLength);
+    local dataTable = catalogSearchForm.Grid.GridControl.DataSource;
+    for i = 0, dataTable.Columns.Count - 1 do
+        local columnName = dataTable.Columns[i].ColumnName;
+        local value = importRow:get_Item(columnName);
+        if value ~= nil and tostring(value) ~= "" and value ~= types["System.DBNull"].Value then
+            if IsValidAeonField(columnName) then
+                LogDebug(columnName .. ": " .. tostring(value));
+                ImportField(columnName, tostring(value), 255);
+            else
+                LogDebug("Skipping field '" .. columnName .. "': not a valid Aeon transaction field.");
+            end
         end
     end
 
@@ -710,49 +691,22 @@ function ImportCitation_Clicked()
     SetImportButtonsDisabled();
 
     local sessionId = GetSessionId();
-    local collection = ArchivesSpaceGetRequest(sessionId, currentRecordUri);
-    local jsonModelType = ExtractProperty(collection, "jsonmodel_type");
-    LogDebug("Json Model Type: ".. jsonModelType);
-    local availableData = {};
-    local mappings = {};
+    local pluginData = GetPluginData(sessionId, currentRecordUri);
 
-    if(jsonModelType == "resource") then
-        availableData = ExtractResourceCitation(sessionId, collection);
-        mappings = HostAppInfo.CitationDataImport["Resource"];
-
-    elseif(jsonModelType == "accession") then
-        availableData = ExtractAccessionCitation(sessionId, collection);
-        mappings = HostAppInfo.CitationDataImport["Accession"];
-
-    elseif(jsonModelType == "digital_object") then
-        availableData = ExtractDigitalObjectCitation(sessionId, collection);
-        mappings = HostAppInfo.CitationDataImport["DigitalObject"];
-
-    else
-        ReportError("Addon Recieved Invalid Object Type");
-    end
-
-    for _, target in pairs(mappings) do
-        local logAspaceFieldNames = "";
-        if availableData[target.AspaceData] then
-            if type(target.AspaceData) == "table" then
-                for i=1, #target.AspaceData do
-                    if logAspaceFieldNames == "" then
-                        logAspaceFieldNames = target.AspaceData[i];
-                    else
-                        logAspaceFieldNames = logAspaceFieldNames .. settings.ImportDataSeparator .. target.AspaceData[i];
-                    end
+    if pluginData ~= nil and pluginData.fields ~= nil then
+        for _, fieldName in ipairs(HostAppInfo.CitationFields) do
+            local value = pluginData.fields[fieldName];
+            if value ~= nil and tostring(value) ~= "" then
+                if IsValidAeonField(fieldName) then
+                    LogDebug(fieldName .. ": " .. tostring(value));
+                    ImportField(fieldName, tostring(value), 255);
+                else
+                    LogDebug("Skipping citation field '" .. fieldName .. "': not a valid Aeon transaction field.");
                 end
-            else
-                logAspaceFieldNames = target.AspaceData;
             end
-
-            local aspaceData = ResolveASpaceMapping(availableData, target.AspaceData);
-            LogDebug(logAspaceFieldNames .. ": " .. aspaceData);
-            ImportField(target.AeonField, availableData[target.AspaceData], target.FieldLength);
-        else
-            LogDebug("Could not import " .. logAspaceFieldNames);
         end
+    else
+        LogDebug("Could not retrieve plugin data for citation import.");
     end
 
     SetCitationImportButtonsEnabled();
