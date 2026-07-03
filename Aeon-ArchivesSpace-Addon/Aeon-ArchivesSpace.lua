@@ -12,7 +12,6 @@ catalogSearchForm.ImportInstanceButton = nil;
 require "Atlas.AtlasHelpers";
 require "Atlas-Addons-Lua-ParseJson.JsonParser";
 require "DataMapping";
-require "Utility";
 
 local settings = {}
 settings.AutoSearch = GetSetting("AutoSearch");
@@ -22,7 +21,8 @@ settings.Username = GetSetting("AS_Username");
 settings.Password = GetSetting("AS_Password");
 settings.AutoSearchPriority = GetSetting("AutoSearchPriority");
 settings.AutoGroupResults = GetSetting("AutoGroupResults");
-settings.ImportDataSeparator = GetSetting("ImportDataSeparator");
+settings.AutoGroupField = GetSetting("AutoGroupField");
+settings.GridDisplayFields = GetSetting("GridDisplayFields");
 settings.DefaultRepositoryId = GetSetting("DefaultRepositoryId");
 
 local types = {};
@@ -241,19 +241,8 @@ function BuildItemsGrid()
     gridView.OptionsBehavior.AutoExpandAllGroups = true;
     gridView.OptionsBehavior.Editable = false;
 
-    -- Build grid columns from DataMapping configuration
-    local gridColumn;
-    for pluginField, caption in pairs(HostAppInfo.GridColumns) do
-        gridColumn = gridView.Columns:Add();
-        gridColumn.Caption = caption;
-        gridColumn.FieldName = pluginField;
-        gridColumn.Name = "gridColumn" .. caption:gsub(" ", "");
-        gridColumn.Visible = true;
-        gridColumn.OptionsColumn.ReadOnly = true;
-        gridColumn.Width = 50;
-        gridColumns[pluginField] = gridColumn;
-    end
-
+    -- Grid columns are created dynamically from the fields the plugin
+    -- returns for each record — see BuildGridColumnsFromTable.
     catalogSearchForm.Grid.GridControl.DataSource = CreateItemsTable({});
 
     gridControl:EndUpdate();
@@ -270,6 +259,75 @@ function CreateItemsTable(fieldNames)
         end
     end
     return itemsTable;
+end
+
+-- Rebuilds the grid's UI columns from the DataTable's columns, filtered and
+-- ordered by the GridDisplayFields setting when it's set. Column captions are
+-- the plugin-returned Aeon field names themselves. Fields without a grid
+-- column are still imported with the row; they just aren't displayed.
+function BuildGridColumnsFromTable(itemsDataTable)
+    local gridView = catalogSearchForm.Grid.GridControl.MainView;
+    gridView.Columns:Clear();
+    gridColumns = {};
+
+    local displayFields = GetGridDisplayFields();
+    if displayFields then
+        for _, columnName in ipairs(displayFields) do
+            if itemsDataTable.Columns:Contains(columnName) then
+                AddGridColumn(gridView, columnName);
+            else
+                LogDebug("GridDisplayFields entry '" .. columnName .. "' was not returned by the plugin. Skipping column.");
+            end
+        end
+    else
+        -- No display list configured — show every returned field
+        for i = 0, itemsDataTable.Columns.Count - 1 do
+            AddGridColumn(gridView, itemsDataTable.Columns[i].ColumnName);
+        end
+    end
+end
+
+function AddGridColumn(gridView, columnName)
+    local gridColumn = gridView.Columns:Add();
+    gridColumn.Caption = columnName;
+    gridColumn.FieldName = columnName;
+    gridColumn.Visible = true;
+    gridColumn.OptionsColumn.ReadOnly = true;
+    gridColumn.Width = 50;
+    gridColumns[columnName] = gridColumn;
+end
+
+-- Parses the GridDisplayFields setting into an ordered list of field names.
+-- Returns nil when the setting is blank (meaning: display everything).
+function GetGridDisplayFields()
+    if settings.GridDisplayFields == nil or settings.GridDisplayFields == "" then
+        return nil;
+    end
+
+    local fields = {};
+    for field in string.gmatch(settings.GridDisplayFields, "[^,]+") do
+        local trimmed = field:gsub("^%s*(.-)%s*$", "%1");
+        if trimmed ~= "" then
+            fields[#fields + 1] = trimmed;
+        end
+    end
+
+    if #fields == 0 then
+        return nil;
+    end
+    return fields;
+end
+
+function ApplyAutoGrouping()
+    if not settings.AutoGroupResults then
+        return;
+    end
+    local groupColumn = gridColumns[settings.AutoGroupField];
+    if groupColumn then
+        groupColumn:Group();
+    else
+        LogDebug("AutoGroupField '" .. tostring(settings.AutoGroupField) .. "' is not a grid column. Skipping grouping.");
+    end
 end
 
 function AlwaysTrue()
@@ -382,7 +440,9 @@ end
 
 function ResetDataGrid()
     if(catalogSearchForm.Grid.GridControl.DataSource) then
-        catalogSearchForm.Grid.GridControl.DataSource = CreateItemsTable({});
+        local emptyTable = CreateItemsTable({});
+        catalogSearchForm.Grid.GridControl.DataSource = emptyTable;
+        BuildGridColumnsFromTable(emptyTable);
         catalogSearchForm.Grid.GridControl.Enabled = false;
     end
 end
@@ -413,15 +473,26 @@ function GetPluginEndpointUrl(recordUri)
     return nil;
 end
 
-function GetPluginData(sessionId, recordUri)
+-- includeInstances: instance/container data is opt-in on the plugin's
+-- endpoints. Grid-population calls request it (with digital-object
+-- instances); citation-import calls omit it and get only `fields`.
+function GetPluginData(sessionId, recordUri, includeInstances)
     local pluginUrl = GetPluginEndpointUrl(recordUri);
     if pluginUrl == nil then
         return nil;
+    end
+    if includeInstances then
+        pluginUrl = pluginUrl .. "?include_instances=true&include_digital_objects=true";
     end
     return ArchivesSpaceGetRequest(sessionId, pluginUrl);
 end
 
 function IsValidAeonField(fieldName)
+    local customFieldName = fieldName:match("^CustomFields%.(.+)");
+    if customFieldName then
+        local success, _ = pcall(GetFieldValue, "Transaction.CustomFields", customFieldName);
+        return success;
+    end
     local success, _ = pcall(GetFieldValue, "Transaction", fieldName);
     return success;
 end
@@ -436,21 +507,16 @@ function PopulateInstanceFieldsFromPlugin(availableData, instance)
     end
 end
 
-function CollectFieldNames(pluginData)
+function CollectFieldNames(fields, instances)
     local fieldSet = {};
 
-    -- Always include grid column fields so the grid can bind to them
-    for pluginField, _ in pairs(HostAppInfo.GridColumns) do
-        fieldSet[pluginField] = true;
-    end
-
-    if pluginData.fields then
-        for k, _ in pairs(pluginData.fields) do
+    if fields then
+        for k, _ in pairs(fields) do
             fieldSet[k] = true;
         end
     end
-    if pluginData.instances and pluginData.instances ~= JsonParser.NIL then
-        for _, instance in ipairs(pluginData.instances) do
+    if instances and instances ~= JsonParser.NIL then
+        for _, instance in ipairs(instances) do
             for k, v in pairs(instance) do
                 if type(v) == "string" or type(v) == "number" or type(v) == "boolean" then
                     fieldSet[k] = true;
@@ -463,6 +529,8 @@ function CollectFieldNames(pluginData)
     for k, _ in pairs(fieldSet) do
         fieldNames[#fieldNames + 1] = k;
     end
+    -- Sort for a stable column order
+    table.sort(fieldNames);
     return fieldNames;
 end
 
@@ -472,7 +540,7 @@ function PopulateDataGrid()
     if (string.match(currentRecordUri, HostAppInfo.PageUri["ArchivalObject"])) then
 
         local sessionId = GetSessionId();
-        local pluginData = GetPluginData(sessionId, currentRecordUri);
+        local pluginData = GetPluginData(sessionId, currentRecordUri, true);
 
         if pluginData == nil then
             LogDebug("Could not retrieve plugin data.");
@@ -487,7 +555,7 @@ function PopulateDataGrid()
             local archivalObject = ArchivesSpaceGetRequest(sessionId, currentRecordUri);
             local resourceUri = ExtractSubproperty(archivalObject, "resource", "ref");
             if resourceUri then
-                local resourcePluginData = GetPluginData(sessionId, resourceUri);
+                local resourcePluginData = GetPluginData(sessionId, resourceUri, true);
                 if resourcePluginData and resourcePluginData.instances and
                    resourcePluginData.instances ~= JsonParser.NIL and #resourcePluginData.instances > 0 then
                     LogDebug("Using Resource instances.");
@@ -501,35 +569,39 @@ function PopulateDataGrid()
             return;
         end
 
-        local availableData = {};
+        local recordFields = {};
         if pluginData.fields then
             for k, v in pairs(pluginData.fields) do
                 if type(v) == "string" or type(v) == "number" or type(v) == "boolean" then
-                    availableData[k] = tostring(v);
+                    recordFields[k] = tostring(v);
                 end
             end
         end
 
-        local itemsDataTable = CreateItemsTable(CollectFieldNames(pluginData));
+        local itemsDataTable = CreateItemsTable(CollectFieldNames(pluginData.fields, instances));
         catalogSearchForm.Grid.GridControl:BeginUpdate();
 
         for _, instance in ipairs(instances) do
-            PopulateInstanceFieldsFromPlugin(availableData, instance);
-            AddRowToItemsTable(itemsDataTable, availableData);
+            -- Fresh copy per row so one instance's fields can't bleed into the next
+            local rowData = {};
+            for k, v in pairs(recordFields) do
+                rowData[k] = v;
+            end
+            PopulateInstanceFieldsFromPlugin(rowData, instance);
+            AddRowToItemsTable(itemsDataTable, rowData);
         end
 
         catalogSearchForm.Grid.GridControl.DataSource = itemsDataTable;
+        BuildGridColumnsFromTable(itemsDataTable);
         catalogSearchForm.Grid.GridControl:EndUpdate();
 
         catalogSearchForm.Grid.GridControl.Enabled = true;
-        if settings.AutoGroupResults then
-            gridColumns[HostAppInfo.AutoGroupField]:Group();
-        end
+        ApplyAutoGrouping();
 
     elseif (string.match(currentRecordUri, HostAppInfo.PageUri["Accession"])) then
 
         local sessionId = GetSessionId();
-        local pluginData = GetPluginData(sessionId, currentRecordUri);
+        local pluginData = GetPluginData(sessionId, currentRecordUri, true);
 
         if pluginData == nil then
             LogDebug("Could not retrieve plugin data.");
@@ -542,30 +614,34 @@ function PopulateDataGrid()
             return;
         end
 
-        local availableData = {};
+        local recordFields = {};
         if pluginData.fields then
             for k, v in pairs(pluginData.fields) do
                 if type(v) == "string" or type(v) == "number" or type(v) == "boolean" then
-                    availableData[k] = tostring(v);
+                    recordFields[k] = tostring(v);
                 end
             end
         end
 
-        local itemsDataTable = CreateItemsTable(CollectFieldNames(pluginData));
+        local itemsDataTable = CreateItemsTable(CollectFieldNames(pluginData.fields, instances));
         catalogSearchForm.Grid.GridControl:BeginUpdate();
 
         for _, instance in ipairs(instances) do
-            PopulateInstanceFieldsFromPlugin(availableData, instance);
-            AddRowToItemsTable(itemsDataTable, availableData);
+            -- Fresh copy per row so one instance's fields can't bleed into the next
+            local rowData = {};
+            for k, v in pairs(recordFields) do
+                rowData[k] = v;
+            end
+            PopulateInstanceFieldsFromPlugin(rowData, instance);
+            AddRowToItemsTable(itemsDataTable, rowData);
         end
 
         catalogSearchForm.Grid.GridControl.DataSource = itemsDataTable;
+        BuildGridColumnsFromTable(itemsDataTable);
         catalogSearchForm.Grid.GridControl:EndUpdate();
 
         catalogSearchForm.Grid.GridControl.Enabled = true;
-        if settings.AutoGroupResults then
-            gridColumns[HostAppInfo.AutoGroupField]:Group();
-        end
+        ApplyAutoGrouping();
     end
 end
 
@@ -575,7 +651,7 @@ function PopulateAllInstances(resourceUri)
     local sessionId = GetSessionId();
 
     -- Get resource-level data from plugin
-    local resourcePluginData = GetPluginData(sessionId, resourceUri);
+    local resourcePluginData = GetPluginData(sessionId, resourceUri, true);
     if resourcePluginData == nil then
         LogDebug("Could not retrieve resource plugin data.");
         return;
@@ -598,7 +674,7 @@ function PopulateAllInstances(resourceUri)
         end
     end
 
-    local itemsDataTable = CreateItemsTable(CollectFieldNames(resourcePluginData));
+    local itemsDataTable = CreateItemsTable(CollectFieldNames(resourcePluginData.fields, resourcePluginData.instances));
     catalogSearchForm.Grid.GridControl:BeginUpdate();
 
     for _, record in ipairs(orderedRecords.uris) do
@@ -606,18 +682,23 @@ function PopulateAllInstances(resourceUri)
 
         -- Only process archival objects (skip the resource itself)
         if string.match(recordUri, HostAppInfo.PageUri["ArchivalObject"]) then
-            local pluginData = GetPluginData(sessionId, recordUri);
+            local pluginData = GetPluginData(sessionId, recordUri, true);
 
             if pluginData == nil then
                 LogDebug("Could not retrieve plugin data for: " .. recordUri);
             else
-                local availableData = {};
+                -- Record-level fields for this AO's rows: resource-level
+                -- fields as the base, overlaid with the AO's own fields
+                local recordFields = {};
                 for k, v in pairs(sharedData) do
-                    availableData[k] = v;
+                    recordFields[k] = v;
                 end
-                -- Override with AO-specific title
-                if pluginData.fields and pluginData.fields["ItemTitle"] then
-                    availableData["ItemTitle"] = pluginData.fields["ItemTitle"];
+                if pluginData.fields then
+                    for k, v in pairs(pluginData.fields) do
+                        if type(v) == "string" or type(v) == "number" or type(v) == "boolean" then
+                            recordFields[k] = tostring(v);
+                        end
+                    end
                 end
 
                 local instances = pluginData.instances;
@@ -632,8 +713,13 @@ function PopulateAllInstances(resourceUri)
 
                 if instances and instances ~= JsonParser.NIL and #instances > 0 then
                     for _, instance in ipairs(instances) do
-                        PopulateInstanceFieldsFromPlugin(availableData, instance);
-                        AddRowToItemsTable(itemsDataTable, availableData);
+                        -- Fresh copy per row so one instance's fields can't bleed into the next
+                        local rowData = {};
+                        for k, v in pairs(recordFields) do
+                            rowData[k] = v;
+                        end
+                        PopulateInstanceFieldsFromPlugin(rowData, instance);
+                        AddRowToItemsTable(itemsDataTable, rowData);
                     end
                 end
             end
@@ -641,15 +727,22 @@ function PopulateAllInstances(resourceUri)
     end
 
     catalogSearchForm.Grid.GridControl.DataSource = itemsDataTable;
+    BuildGridColumnsFromTable(itemsDataTable);
     catalogSearchForm.Grid.GridControl:EndUpdate();
 
     catalogSearchForm.Grid.GridControl.Enabled = true;
-    if settings.AutoGroupResults then
-        gridColumns["Volume"]:Group();
-    end
+    ApplyAutoGrouping();
 end
 
 function AddRowToItemsTable(itemsDataTable, availableData)
+    -- Records can differ in which fields the plugin returns (e.g. per-AO
+    -- fields during a bulk load), so make sure every field has a column
+    for fieldName, _ in pairs(availableData) do
+        if not itemsDataTable.Columns:Contains(fieldName) then
+            itemsDataTable.Columns:Add(fieldName);
+        end
+    end
+
     local itemRow = itemsDataTable:NewRow();
     for i = 0, itemsDataTable.Columns.Count - 1 do
         local colName = itemsDataTable.Columns[i].ColumnName;
@@ -676,7 +769,7 @@ function ImportInstance_Clicked()
         if value ~= nil and tostring(value) ~= "" and value ~= types["System.DBNull"].Value then
             if IsValidAeonField(columnName) then
                 LogDebug(columnName .. ": " .. tostring(value));
-                ImportField(columnName, tostring(value), 255);
+                ImportField(columnName, tostring(value));
             else
                 LogDebug("Skipping field '" .. columnName .. "': not a valid Aeon transaction field.");
             end
@@ -693,13 +786,15 @@ function ImportCitation_Clicked()
     local sessionId = GetSessionId();
     local pluginData = GetPluginData(sessionId, currentRecordUri);
 
+    -- Import every field the plugin returns — the plugin's mapping rules
+    -- (configurable in the ArchivesSpace staff UI) decide what maps to what;
+    -- the addon just delivers the values.
     if pluginData ~= nil and pluginData.fields ~= nil then
-        for _, fieldName in ipairs(HostAppInfo.CitationFields) do
-            local value = pluginData.fields[fieldName];
-            if value ~= nil and tostring(value) ~= "" then
+        for fieldName, value in pairs(pluginData.fields) do
+            if value ~= nil and value ~= JsonParser.NIL and tostring(value) ~= "" then
                 if IsValidAeonField(fieldName) then
                     LogDebug(fieldName .. ": " .. tostring(value));
-                    ImportField(fieldName, tostring(value), 255);
+                    ImportField(fieldName, tostring(value));
                 else
                     LogDebug("Skipping citation field '" .. fieldName .. "': not a valid Aeon transaction field.");
                 end
@@ -713,114 +808,6 @@ function ImportCitation_Clicked()
     SwitchToDetailsTab();
 end
 
-function ExtractResourceCitation(sessionId, json)
-    local availableData = {};
-    availableData["Title"] = ExtractProperty(json, "title");
-    availableData["Creators"] = ExtractCreators(sessionId, json);
-    availableData["CreatedBy"] = ExtractProperty(json, "created_by");
-    availableData["FindingAidTitle"] = ExtractProperty(json, "finding_aid_title");
-    availableData["EadId"] = ExtractProperty(json, "ead_id");
-    local dates = ExtractProperty(json, "dates");
-    availableData["DateExpression"] = ExtractProperty(dates[1], "expression");
-
-    return availableData;
-end
-
-function ExtractAccessionCitation(sessionId, json)
-    local availableData = {};
-    availableData["Title"] = ExtractProperty(json, "title");
-    availableData["DisplayString"] = ExtractProperty(json, "display_string");
-    availableData["AccessionDate"] = ExtractProperty(json, "accession_date");
-    availableData["CreatedBy"] = ExtractProperty(json, "created_by");
-    local dates = ExtractProperty(json, "dates");
-    availableData["DateExpression"] = ExtractProperty(dates[1], "expression");
-
-    return availableData;
-end
-
-function ExtractDigitalObjectCitation(sessionId, json)
-    local availableData = {};
-    availableData["Title"] = ExtractProperty(json, "title");
-    availableData["Creators"] = ExtractCreators(sessionId, json);
-    availableData["CreatedBy"] = ExtractProperty(json, "created_by");
-    availableData["DigitalObjectId"] = ExtractProperty(json, "digital_object_id");
-    local dates = ExtractProperty(json, "dates");
-    availableData["DateExpression"] = ExtractProperty(dates[1], "expression");
-    availableData["FileUri"] = ExtractProperty(json, "file_uri");
-
-    return availableData;
-end
-
-function GetTopContainerFromAPI(sessionId, archivalObjectInstance)
-    if (archivalObjectInstance.sub_container ~= nil and archivalObjectInstance.sub_container ~= JsonParser.NIL) then
-        local topContainerUri = archivalObjectInstance.sub_container.top_container.ref;
-        local topContainer = ArchivesSpaceGetRequest(sessionId, topContainerUri);
-        return topContainer
-    end
-
-    return nil
-end
-
-function GetDigitalObjectFromAPI(sessionId, archivalObjectInstance)
-    if (archivalObjectInstance.digital_object ~= nil and archivalObjectInstance.digital_object ~= JsonParser.NIL) then
-        local digitalObjectUri = archivalObjectInstance.digital_object.ref;
-        local digitalObject = ArchivesSpaceGetRequest(sessionId, digitalObjectUri);
-        return digitalObject
-    end
-
-    return nil
-end
-
-function ExtractArchivalObjectInstanceTitle(archivalObjectInstance, topContainer, digitalObject)
-    local container = "";
-
-    if (archivalObjectInstance.container ~= nil and archivalObjectInstance.container ~= JsonParser.NIL) then
-        if (archivalObjectInstance.container.type_1 ~= nil and archivalObjectInstance.container.type_1 ~= JsonParser.NIL) then
-            container = container .. archivalObjectInstance.container.type_1 .. " " .. archivalObjectInstance.container.indicator_1;
-        end
-
-        if (archivalObjectInstance.container.type_2 ~= nil and archivalObjectInstance.container.type_2 ~= JsonParser.NIL) then
-            container = container .. ', ' .. archivalObjectInstance.container.type_2 .. " " .. archivalObjectInstance.container.indicator_2;
-        end
-    elseif (topContainer) then
-        container = topContainer.long_display_string;
-    elseif (digitalObject) then
-        container = digitalObject.title;
-    end
-
-    return container;
-end
-
-function ExtractArchivalObjectInstanceBarcode(topContainer, digitalObject)
-    local barcode = "";
-
-    if topContainer and topContainer.barcode then
-        barcode = topContainer.barcode;
-    elseif digitalObject and digitalObject.digital_object_id then
-        barcode = digitalObject.digital_object_id;
-    end
-
-    return barcode;
-end
-
-function PopulateInstanceFields(availableData, instance, topContainer, digitalObject)
-    availableData["ArchivalObjectInstance"] = ExtractArchivalObjectInstanceTitle(instance, topContainer, digitalObject);
-    availableData["ArchivalObjectInstanceBarcode"] = ExtractArchivalObjectInstanceBarcode(topContainer, digitalObject);
-    availableData["InstanceType"] = ExtractProperty(instance, "instance_type") or "";
-
-    local subContainer = (instance.sub_container ~= nil and instance.sub_container ~= JsonParser.NIL) and instance.sub_container or nil;
-    availableData["ContainerChildType"] = ExtractProperty(subContainer, "type_2") or "";
-    availableData["ContainerChildIndicator"] = ExtractProperty(subContainer, "indicator_2") or "";
-    availableData["ContainerGrandchildType"] = ExtractProperty(subContainer, "type_3") or "";
-    availableData["ContainerGrandchildIndicator"] = ExtractProperty(subContainer, "indicator_3") or "";
-
-    availableData["TopContainerType"] = ExtractProperty(topContainer, "type") or "";
-    availableData["TopContainerIndicator"] = ExtractProperty(topContainer, "indicator") or "";
-    local restricted = ExtractProperty(topContainer, "restricted");
-    availableData["TopContainerRestricted"] = (type(restricted) == "boolean") and tostring(restricted) or (restricted or "");
-    availableData["InternalNote"] = ExtractProperty(topContainer, "internal_note") or "";
-end
-
 function ExtractProperty(object, propery)
     if object then
         return EmptyStringIfNil(object[propery]);
@@ -831,53 +818,6 @@ function ExtractSubproperty(object, property, subproperty)
     if subproperty then
         local prop = ExtractProperty(object, property);
         return EmptyStringIfNil(prop[subproperty]);
-    end
-end
-
-function PopulateLocationFields(availableData, location)
-    availableData["LocationBuilding"] = ExtractProperty(location, "building");
-    availableData["LocationFloor"] = ExtractProperty(location, "floor");
-    availableData["LocationRoom"] = ExtractProperty(location, "room");
-    availableData["LocationArea"] = ExtractProperty(location, "area");
-    availableData["LocationBarcode"] = ExtractProperty(location, "barcode");
-    availableData["LocationClassification"] = ExtractProperty(location, "classification");
-    availableData["LocationCoordinate1Label"] = ExtractProperty(location, "coordinate_1_label");
-    availableData["LocationCoordinate1Indicator"] = ExtractProperty(location, "coordinate_1_indicator");
-    availableData["LocationCoordinate2Label"] = ExtractProperty(location, "coordinate_2_label");
-    availableData["LocationCoordinate2Indicator"] = ExtractProperty(location, "coordinate_2_indicator");
-    availableData["LocationCoordinate3Label"] = ExtractProperty(location, "coordinate_3_label");
-    availableData["LocationCoordinate3Indicator"] = ExtractProperty(location, "coordinate_3_indicator");
-end
-
-function ExtractCreators(sessionId, collection)
-    if sessionId and collection then
-    --Determine the creator(s) of the collection by following the agent links
-        local creators = "";
-        for _, v in ipairs(collection.linked_agents) do
-            if (EmptyStringIfNil(v.role) == "creator") then
-                local creatorRecord = ArchivesSpaceGetRequest(sessionId, v.ref);
-                if (#creatorRecord.names > 0) then
-                    local creatorName = ExtractCreatorName(creatorRecord);
-
-                    if (creatorName ~= "") then
-                        if (string.len(creators) > 0) then
-                            creators = creators .. "; ";
-                        end
-                        creators = creators .. creatorName;
-                    end
-                end
-            end
-        end
-        LogDebug("Creators = " .. creators);
-        return creators;
-    end
-end
-
-function ExtractCreatorName(creatorRecord)
-    if creatorRecord then
-        local creatorName = EmptyStringIfNil(creatorRecord.names[1].sort_name);
-        LogDebug("Creator Name = " .. creatorName);
-        return creatorName;
     end
 end
 
@@ -905,18 +845,6 @@ function GetSessionId()
     return sessionId;
 end
 
-function GetArchivalObject(sessionId, archivalObjectUri)
-    local archivalObject = ArchivesSpaceGetRequest(sessionId, archivalObjectUri);
-
-    if (archivalObject == nil or
-        archivalObject.resource == nil or archivalObject.resource == JsonParser.NIL or
-        archivalObject.resource.ref == nil or archivalObject.resource.ref == JsonParser.NIL) then
-        ReportError("There is no reference to this object's collection.");
-    end
-
-    return archivalObject;
-end
-
 function ArchivesSpaceGetRequest(sessionId, uri)
     local response = nil;
 
@@ -933,75 +861,17 @@ function ArchivesSpaceGetRequest(sessionId, uri)
     return response;
 end
 
-function ImportField(target, fieldValue, targetSize)
+-- Values are imported untruncated — the client/database handles values that
+-- exceed a field's column length (see MIGRATION_PLAN.md testing notes).
+function ImportField(target, fieldValue)
     if ((fieldValue ~= nil) and (fieldValue ~= "") and (fieldValue ~= types["System.DBNull"].Value)) then
         if target:find("^CustomFields%.") then
             local shortName = target:sub(14);
-            SetFieldValue("Transaction.CustomFields", shortName, Truncate(fieldValue, targetSize));
+            SetFieldValue("Transaction.CustomFields", shortName, fieldValue);
         else
-            SetFieldValue("Transaction", target, Truncate(fieldValue, targetSize));
+            SetFieldValue("Transaction", target, fieldValue);
         end
     end
-end
-
--- Checks if a mapping is a table, which indicates multiple values that should be concatenated and imported to a single field.
--- Returns the concatenated values if the mapping is a table, and a single value otherwise.
-function ResolveASpaceMapping(availableData, dataMapping)
-    local function ResolveNestedMapping(mapping)
-        if mapping:find("%.") then
-            local mappingParts = Utility.StringSplit("%.", mapping);
-
-            local runningData = nil;
-            -- Resolve mapping at each level until we get to the bottom.
-            for i=1, #mappingParts do
-                if i == 1 then
-                    runningData = availableData[mappingParts[i]];
-                else
-                    -- Nil-check before indexing
-                    if runningData == nil or runningData == JsonParser.NIL then
-                        return nil;
-                    end
-                    runningData = runningData[mappingParts[i]];
-                end
-            end
-
-            -- Final check for JsonParser.NIL
-            if runningData == JsonParser.NIL then
-                return nil;
-            end
-
-            return Utility.Trim(runningData);
-        end
-
-        local resolvedMapping = availableData[mapping];
-        if resolvedMapping == JsonParser.NIL then
-            return nil;
-        end
-
-        return Utility.Trim(resolvedMapping);
-    end
-
-    if type(dataMapping) == "table" then
-        local fieldValues = {};
-        for i=1, #dataMapping do
-            if not IsNilOrBlank(dataMapping[i]) then
-                local fieldValue;
-                if type(dataMapping[i]) == "table" then
-                    fieldValue = ResolveASpaceMapping(availableData, dataMapping[i]);
-                else
-                    fieldValue = ResolveNestedMapping(dataMapping[i]);
-                end
-
-                if not IsNilOrBlank(fieldValue) then
-                    fieldValues[#fieldValues+1] = fieldValue;
-                end
-            end
-        end
-
-        return table.concat(fieldValues, settings.ImportDataSeparator);
-    end
-
-    return ResolveNestedMapping(dataMapping);
 end
 
 function EmptyStringIfNil(value)
@@ -1010,14 +880,6 @@ function EmptyStringIfNil(value)
     else
         return value;
     end
-end
-
-function IsNilOrBlank(str)
-    if not str or str == JsonParser.NIL or str == "" then
-        return true;
-    end;
-
-    return false;
 end
 
 function SendApiRequest(apiPath, method, parameters, authToken)
@@ -1178,21 +1040,6 @@ function PerformLogin()
     ]];
 
     catalogSearchForm.Browser:ExecuteScript(loginScript, { settings.Username, settings.Password } );
-end
-
-function Truncate(value, size)
-    if size == nil then
-        LogDebug("Size was nil. Truncating to 50 characters");
-        size = 50;
-    end
-
-    if ((value == nil) or (value == "")) then
-        LogDebug("Value was nil or empty. Skipping truncation.");
-        return value;
-    else
-        LogDebug("Truncating to " .. size .. " characters: " .. value);
-        return string.sub(value, 0, size);
-    end
 end
 
 function SwitchToDetailsTab()

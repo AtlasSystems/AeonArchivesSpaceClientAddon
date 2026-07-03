@@ -2,7 +2,7 @@
 <Configuration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
   <Name>ArchivesSpace Interface</Name>
   <Author>Atlas Systems, Inc.</Author>
-  <Version>3.2.0</Version>
+  <Version>4.0.0</Version>
   <Active>True</Active>
   <Type>Addon</Type>
   <Description>This addon performs searches in ArchivesSpace using the staff interface. This addon supports ArchivesSpace versions v2.8.0 and later.</Description>
@@ -30,10 +30,13 @@
       <Description>A comma-separated list of searches to be performed in order.</Description>
     </Setting>
     <Setting name="AutoGroupResults" value="false" type="boolean">
-      <Description>Specifies whether the results grid should be grouped automatically. The table will be grouped by the "Volume" column, which refers to either the instance's top container display string or digital object title.</Description>
+      <Description>Specifies whether the results grid should be grouped automatically by the field named in the AutoGroupField setting.</Description>
     </Setting>
-    <Setting name="ImportDataSeparator" value=" " type="string">
-      <Description>Specifies the separator to be used when importing concatenated fields.</Description>
+    <Setting name="AutoGroupField" value="ItemVolume" type="string">
+      <Description>The Aeon field (as returned by the ArchivesSpace Data Handler plugin) to group the results grid by when AutoGroupResults is enabled. Must also be listed in GridDisplayFields (when that setting is used). The default, ItemVolume, holds the instance's top container display string or digital object title under the plugin's default mappings.</Description>
+    </Setting>
+    <Setting name="GridDisplayFields" value="ItemTitle, CallNumber, ItemAuthor, ItemVolume, ItemNumber, Location" type="string">
+      <Description>A comma-separated list of the fields (as returned by the ArchivesSpace Data Handler plugin) to display as columns in the results grid, in order. Fields not listed are still imported when a row is imported; they just aren't displayed. Leave blank to display every returned field.</Description>
     </Setting>
     <Setting name="DefaultRepositoryId" value="" type="string">
       <Description>Specifies the default repository to be used when searching.</Description>
