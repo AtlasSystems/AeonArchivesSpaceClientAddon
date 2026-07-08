@@ -86,34 +86,45 @@ local archiveSpaceAddonScript = [[
 
     if (typeof archivesSpaceAddonInitialized === 'undefined') {
         var archivesSpaceAddonInitialized = true;
-        var instanceGridPopulated = false;
         var currentRepositoryPath = /\/repositories\/(\d+)/.exec($(".repo-container > .btn-group > a[href*='/repositories/']")[0].href)[0];
 
         //Sets the currentRecordUri
         if (currentRepositoryPath) {
-            // There is an information tree
-            if (window.AjaxTree) {
-                // Sets the Current Resource Path when the Ajax Tree is first loaded
-                var objectId = tree.large_tree.current_tree_id;
-                var objectUrl = buildObjectUrl(objectId);
-                atlasAddonAsync.executeAddonFunction('NodeChanged', currentRepositoryPath, objectUrl);
+            // ArchivesSpace 4.2+ renders resources and archival objects as nodes in
+            // an InfiniteTree; the selected node is marked .current and carries the
+            // full record URI in its data-uri. (The legacy AjaxTree class is still
+            // loaded on these pages, but its `tree` global is gone, so the old
+            // `tree.large_tree.current_tree_id` path throws — hence this replaces it.)
+            if (typeof InfiniteTree === 'function' && document.getElementById('infinite-tree-container')) {
+                var lastTreeUri = null;
 
-                //Try to get the app_prefix to remove any additional web paths from the URL
-                var appPrefix = "/";
-                if (AS) {
-                    appPrefix = AS.app_prefix("");
-                }
-
-                // Update the current URI when tree nodes change, without resetting the grid
-                var originalAjaxThePane = AjaxTree.prototype._ajax_the_pane;
-                AjaxTree.prototype._ajax_the_pane = function(url, params, callback) {
-                    //If the appPrefix is anything other than "/", replace it with just "/"
-                    var updateUrl = url.replace(appPrefix, "/");
-                    updateUrl.startsWith(updateUrl) ? updateUrl : "/" + updateUrl;
-                    atlasAddonAsync.executeAddonFunction('UpdateCurrentUri', currentRepositoryPath, updateUrl);
-                    //Preserve the original call using the original ASpace URL parameter
-                    originalAjaxThePane.call(this, url, params, callback);
+                var populateFromCurrentNode = function() {
+                    var currentNode = document.querySelector('#infinite-tree-container .node.current');
+                    if (!currentNode) { return; }
+                    var nodeUri = currentNode.getAttribute('data-uri');
+                    // Dedupe: the initial poll and the nodeSelect event can both fire
+                    // for the same node.
+                    if (!nodeUri || nodeUri === lastTreeUri) { return; }
+                    lastTreeUri = nodeUri;
+                    var objectUrl = buildObjectUrl(currentNode.id);
+                    atlasAddonAsync.executeAddonFunction('NodeChanged', currentRepositoryPath, objectUrl);
+                    atlasAddonAsync.executeAddonFunction('PopulateDataGrid');
                 };
+
+                // Re-populate the grid for whichever node the staff select.
+                document.addEventListener('infiniteTree:nodeSelect', populateFromCurrentNode, true);
+
+                // Initial load: the tree renders asynchronously, so the current node
+                // may not be in the DOM yet. Poll briefly until it appears.
+                var treePollCount = 0;
+                var treePoll = setInterval(function() {
+                    if (document.querySelector('#infinite-tree-container .node.current')) {
+                        clearInterval(treePoll);
+                        populateFromCurrentNode();
+                    } else if (++treePollCount > 25) {
+                        clearInterval(treePoll);
+                    }
+                }, 200);
             }
             else {
                 var selectedResourcePath = window.location.pathname;
@@ -129,15 +140,12 @@ local archiveSpaceAddonScript = [[
         $(document).ready(function() {
             atlasAddonAsync.executeAddonFunction('SetCitationImportButtonsEnabled');
         });
-        //Watch for the event to signal the details pane has finished loading
+        //Watch for the event to signal the details pane has finished loading.
+        // NOTE: bulk loading of every instance under a resource (PopulateAllInstances
+        // / getResourceUri) is intentionally NOT auto-fired here — the grid tracks the
+        // selected node instead (master parity). The bulk path is kept for a possible
+        // future explicit "load all" action.
         $(document).on('loadedrecordform.aspace', function() {
-            if (!instanceGridPopulated) {
-                var resourceUri = getResourceUri();
-                if (resourceUri) {
-                    atlasAddonAsync.executeAddonFunction('PopulateAllInstances', resourceUri);
-                    instanceGridPopulated = true;
-                }
-            }
             atlasAddonAsync.executeAddonFunction('SetCitationImportButtonsEnabled');
         });
     }
