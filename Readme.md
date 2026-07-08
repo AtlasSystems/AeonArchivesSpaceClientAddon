@@ -99,7 +99,7 @@ The Aeon field (as returned by the ArchivesSpace Data Handler plugin) to group t
 
 A comma-separated list of the fields (as returned by the ArchivesSpace Data Handler plugin) to display as columns in the results grid, in order. Fields not listed are still imported when a row is imported; they just aren't displayed. Leave blank to display every returned field.
 
-Default value: `ItemTitle, CallNumber, ItemAuthor, ItemVolume, ItemNumber, Location`
+Default value: `ItemTitle, CallNumber, ItemSubtitle, ItemAuthor, ItemVolume, ItemNumber, Location`
 
 ### DefaultRepositoryId
 
