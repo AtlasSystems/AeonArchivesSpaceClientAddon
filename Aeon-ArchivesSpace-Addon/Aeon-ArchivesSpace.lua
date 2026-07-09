@@ -283,7 +283,9 @@ function BuildGridColumnsFromTable(itemsDataTable)
         for _, columnName in ipairs(displayFields) do
             if itemsDataTable.Columns:Contains(columnName) then
                 AddGridColumn(gridView, columnName);
-            else
+            elseif itemsDataTable.Columns.Count > 0 then
+                -- Only warn when the plugin actually returned fields but not
+                -- this one; an empty table means the grid is just being reset.
                 LogDebug("GridDisplayFields entry '" .. columnName .. "' was not returned by the plugin. Skipping column.");
             end
         end
@@ -961,35 +963,75 @@ function NavigateToLogin()
 end
 
 function SetDefaultRepository()
-    LogDebug("Setting default repository to repository ID " .. settings.DefaultRepositoryId);
-
-    local setDefaultRepositoryScript = [[
-        (function(defaultRepositoryId) {
-            var repositoryIdSelect = document.getElementById('id');
-
-            if (!(repositoryIdSelect)) {
-                console.log('Unable to find repository ID select.');
-            }
-
-            repositoryIdSelect.value = defaultRepositoryId;
-            
-            var setRepositoryButtonXPath = '(//button[text()="Select Repository"])[2]';
-            var setRepositoryButton = document.evaluate(setRepositoryButtonXPath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-
-            if (!setRepositoryButton) {
-                console.log('Unable to find button for setting default repository.');
-            }
-            
-            setRepositoryButton.click();
-        })
-    ]];
-
+    -- Always (re)register the post-login AutoSearch handler, regardless of
+    -- whether a default repository is configured.
     if (settings.AutoSearch) then
         catalogSearchForm.Browser:RegisterPageHandler("custom", "IsSignedIn", "AutoSearchAfterLogin", true);
     else
-        LogDebug("AutoSearch is disabled. Skipping page page handler registration to perform autosearch functionality.")
+        LogDebug("AutoSearch is disabled. Skipping page handler registration to perform autosearch functionality.")
     end
-    catalogSearchForm.Browser:ExecuteScript(setDefaultRepositoryScript, { settings.DefaultRepositoryId } );
+
+    -- ArchivesSpace already selects a repository on login, so we only override
+    -- it when the staff explicitly configured a default.
+    if (settings.DefaultRepositoryId == nil or settings.DefaultRepositoryId == "") then
+        LogDebug("No default repository configured. Leaving the ArchivesSpace default in place.");
+        return;
+    end
+
+    if (not string.match(settings.DefaultRepositoryId, "^%d+$")) then
+        LogDebug("DefaultRepositoryId '" .. settings.DefaultRepositoryId .. "' is not a valid numeric repository ID. Leaving the ArchivesSpace default in place.");
+        return;
+    end
+
+    -- Only select the repository if it's actually one of the options available
+    -- to this user; setting a missing/invalid value would clear the selection
+    -- and error out. EvaluateScript returns a status we can log on this side.
+    local setDefaultRepositoryScript = [[
+        (function() {
+            var repositoryIdSelect = document.getElementById('id');
+            if (!repositoryIdSelect) {
+                return 'no-select';
+            }
+
+            var hasOption = false;
+            for (var i = 0; i < repositoryIdSelect.options.length; i++) {
+                if (repositoryIdSelect.options[i].value === ']] .. settings.DefaultRepositoryId .. [[') {
+                    hasOption = true;
+                    break;
+                }
+            }
+            if (!hasOption) {
+                return 'not-found';
+            }
+
+            repositoryIdSelect.value = ']] .. settings.DefaultRepositoryId .. [[';
+
+            var setRepositoryButton = document.evaluate('(//button[text()="Select Repository"])[2]', document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+            if (!setRepositoryButton) {
+                return 'no-button';
+            }
+
+            setRepositoryButton.click();
+            return 'ok';
+        })()
+    ]];
+
+    local jsResult = catalogSearchForm.Browser:EvaluateScript(setDefaultRepositoryScript);
+    if (not jsResult.Success) then
+        LogDebug("Error evaluating the default-repository script: " .. tostring(jsResult.Message));
+        return;
+    end
+
+    local status = jsResult.Result;
+    if (status == "ok") then
+        LogDebug("Set default repository to repository ID " .. settings.DefaultRepositoryId);
+    elseif (status == "not-found") then
+        LogDebug("Configured default repository ID " .. settings.DefaultRepositoryId .. " is not an available repository. Leaving the ArchivesSpace default in place.");
+    elseif (status == "no-select") then
+        LogDebug("Could not find the repository selector to set default repository ID " .. settings.DefaultRepositoryId .. ".");
+    elseif (status == "no-button") then
+        LogDebug("Could not find the Select Repository button to set default repository ID " .. settings.DefaultRepositoryId .. ".");
+    end
 end
 
 function AutoSearchAfterLogin()
