@@ -5,7 +5,7 @@
   <Version>4.0.0</Version>
   <Active>True</Active>
   <Type>Addon</Type>
-  <Description>This addon performs searches in ArchivesSpace using the staff interface. This addon supports ArchivesSpace versions v2.8.0 and later.</Description>
+  <Description>This addon performs searches in ArchivesSpace using the staff interface. This addon supports ArchivesSpace versions v2.8.0 and later. As of version 4.0.0 it requires the ArchivesSpace Data Handler plugin to be installed on the ArchivesSpace server, which supplies the field mappings the addon imports.</Description>
   <Forms>
     <Form>FormRequest</Form>
   </Forms>

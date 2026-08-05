@@ -46,7 +46,7 @@
 ## Summary
 This addon is used to integrate the ArchivesSpace staff interface into the Aeon Client request form so that staff can search the records of their ArchivesSpace instance and import details into Aeon requests.
 
-The addon requires the **ArchivesSpace Data Handler plugin** to be installed on the ArchivesSpace server. The plugin returns record data already mapped to Aeon field names; all field mapping is configured there (in the ArchivesSpace staff interface under Plug-ins → Aeon Mapping), not in the addon.
+The addon supports ArchivesSpace v2.8.0 and later, and as of version 4.0.0 it requires the **ArchivesSpace Data Handler plugin** to be installed on the ArchivesSpace server. The plugin returns record data already mapped to Aeon field names; all field mapping is configured there (in the ArchivesSpace staff interface under Plug-ins → Aeon Mapping), not in the addon.
 
 ## Installation
 This addon requires two Lua libraries that are included in the distribution.

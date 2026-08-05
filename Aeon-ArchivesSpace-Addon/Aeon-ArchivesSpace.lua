@@ -73,17 +73,6 @@ local archiveSpaceAddonScript = [[
         }
     }
 
-    function getResourceUri() {
-        var resourceElement = document.querySelector('[id^="resource_"]');
-        if (resourceElement) {
-            var resourceMatch = /resource_(\d+)/.exec(resourceElement.id);
-            if (resourceMatch) {
-                return currentRepositoryPath + '/resources/' + resourceMatch[1];
-            }
-        }
-        return null;
-    }
-
     if (typeof archivesSpaceAddonInitialized === 'undefined') {
         var archivesSpaceAddonInitialized = true;
         var currentRepositoryPath = /\/repositories\/(\d+)/.exec($(".repo-container > .btn-group > a[href*='/repositories/']")[0].href)[0];
@@ -112,6 +101,10 @@ local archiveSpaceAddonScript = [[
                 };
 
                 // Re-populate the grid for whichever node the staff select.
+                // The `true` (capture phase) is REQUIRED, not stylistic:
+                // ArchivesSpace dispatches infiniteTree:nodeSelect as a
+                // non-bubbling CustomEvent on #infinite-tree-record-pane, so a
+                // default bubble-phase listener on document would never fire.
                 document.addEventListener('infiniteTree:nodeSelect', populateFromCurrentNode, true);
 
                 // Initial load: the tree renders asynchronously, so the current node
@@ -125,6 +118,33 @@ local archiveSpaceAddonScript = [[
                         clearInterval(treePoll);
                     }
                 }, 200);
+            }
+            // ArchivesSpace < 4.2 renders the collection tree with the legacy
+            // AjaxTree instead of InfiniteTree. Guarded on `tree` so this can't
+            // throw on 4.2, where the AjaxTree class is still loaded but the
+            // `tree` instance is gone (that throw is why the InfiniteTree branch
+            // above had to replace it).
+            else if (window.AjaxTree && typeof tree !== 'undefined' && tree.large_tree) {
+                // Populate for the initially-selected node.
+                var objectUrl = buildObjectUrl(tree.large_tree.current_tree_id);
+                atlasAddonAsync.executeAddonFunction('NodeChanged', currentRepositoryPath, objectUrl);
+                atlasAddonAsync.executeAddonFunction('PopulateDataGrid');
+
+                //Try to get the app_prefix to remove any additional web paths from the URL
+                var appPrefix = "/";
+                if (AS) {
+                    appPrefix = AS.app_prefix("");
+                }
+
+                // Re-populate as the staff navigate to other tree nodes.
+                var originalAjaxThePane = AjaxTree.prototype._ajax_the_pane;
+                AjaxTree.prototype._ajax_the_pane = function(url, params, callback) {
+                    var updateUrl = url.replace(appPrefix, "/");
+                    atlasAddonAsync.executeAddonFunction('NodeChanged', currentRepositoryPath, updateUrl);
+                    atlasAddonAsync.executeAddonFunction('PopulateDataGrid');
+                    //Preserve the original call using the original ASpace URL parameter
+                    originalAjaxThePane.call(this, url, params, callback);
+                };
             }
             else {
                 var selectedResourcePath = window.location.pathname;
@@ -141,10 +161,9 @@ local archiveSpaceAddonScript = [[
             atlasAddonAsync.executeAddonFunction('SetCitationImportButtonsEnabled');
         });
         //Watch for the event to signal the details pane has finished loading.
-        // NOTE: bulk loading of every instance under a resource (PopulateAllInstances
-        // / getResourceUri) is intentionally NOT auto-fired here — the grid tracks the
-        // selected node instead (master parity). The bulk path is kept for a possible
-        // future explicit "load all" action.
+        // The grid tracks the selected tree node (one record at a time), so we
+        // don't bulk-load instances here — we just keep the citation-import
+        // buttons in sync as records load.
         $(document).on('loadedrecordform.aspace', function() {
             atlasAddonAsync.executeAddonFunction('SetCitationImportButtonsEnabled');
         });
@@ -224,6 +243,14 @@ function InitializeLoginPageHandler()
     catalogSearchForm.Browser:RegisterPageHandler("custom", "LoginPageLoaded", "PerformLogin", true);
     catalogSearchForm.Browser:RegisterPageHandler("custom", "IsNotSignedIn", "NavigateToLogin", true);
     catalogSearchForm.Browser:RegisterPageHandler("custom", "IsSignedIn", "SetDefaultRepository", true);
+    -- Register AutoSearch here (before sign-in) rather than from inside
+    -- SetDefaultRepository. Critical page handlers are snapshotted at the start
+    -- of each page-load check, so a handler that registers another one mid-check
+    -- doesn't get evaluated until a later page load — which never comes when no
+    -- default repository is set (SetDefaultRepository returns without navigating).
+    if (settings.AutoSearch) then
+        catalogSearchForm.Browser:RegisterPageHandler("custom", "IsSignedIn", "AutoSearchAfterLogin", true);
+    end
     catalogSearchForm.Browser:RegisterPageHandler("custom", "AlwaysTrue", "InjectScriptBridge", false);
 end
 
@@ -308,10 +335,20 @@ function AddGridColumn(gridView, columnName)
 end
 
 -- Parses the GridDisplayFields setting into an ordered list of field names.
--- Returns nil when the setting is blank (meaning: display everything).
+-- Returns nil when the setting is blank (meaning: display everything). The
+-- setting is constant for the session, so parse it once and cache the result
+-- rather than re-parsing on every grid rebuild (i.e. every node selection).
+local gridDisplayFieldsParsed = false;
+local gridDisplayFieldsCache = nil;
+
 function GetGridDisplayFields()
+    if gridDisplayFieldsParsed then
+        return gridDisplayFieldsCache;
+    end
+    gridDisplayFieldsParsed = true;
+
     if settings.GridDisplayFields == nil or settings.GridDisplayFields == "" then
-        return nil;
+        return gridDisplayFieldsCache; -- nil: display everything
     end
 
     local fields = {};
@@ -322,10 +359,10 @@ function GetGridDisplayFields()
         end
     end
 
-    if #fields == 0 then
-        return nil;
+    if #fields > 0 then
+        gridDisplayFieldsCache = fields;
     end
-    return fields;
+    return gridDisplayFieldsCache;
 end
 
 function ApplyAutoGrouping()
@@ -416,11 +453,6 @@ function NodeChanged(currentRepositoryPath, selectedResourcePath)
     LogDebug('currentRecordUri = ' .. currentRecordUri);
 
     SetImportButtonsDisabled();
-end
-
-function UpdateCurrentUri(currentRepositoryPath, selectedResourcePath)
-    currentRecordUri = PathCombine(currentRepositoryPath, selectedResourcePath);
-    LogDebug('currentRecordUri = ' .. currentRecordUri);
 end
 
 function SetCitationImportButtonsEnabled()
@@ -544,6 +576,46 @@ function CollectFieldNames(fields, instances)
     return fieldNames;
 end
 
+-- Copies the plugin's record-level fields into a plain string map, dropping
+-- anything that isn't a scalar (string/number/boolean).
+function StringifyFields(fields)
+    local result = {};
+    if fields then
+        for k, v in pairs(fields) do
+            if type(v) == "string" or type(v) == "number" or type(v) == "boolean" then
+                result[k] = tostring(v);
+            end
+        end
+    end
+    return result;
+end
+
+-- Builds the grid from a plugin record payload and its resolved instance list:
+-- one row per instance with the record-level fields merged in (a fresh copy per
+-- row so values don't bleed between rows).
+function PopulateGridFromPluginData(pluginData, instances)
+    local recordFields = StringifyFields(pluginData.fields);
+
+    local itemsDataTable = CreateItemsTable(CollectFieldNames(pluginData.fields, instances));
+    catalogSearchForm.Grid.GridControl:BeginUpdate();
+
+    for _, instance in ipairs(instances) do
+        local rowData = {};
+        for k, v in pairs(recordFields) do
+            rowData[k] = v;
+        end
+        PopulateInstanceFieldsFromPlugin(rowData, instance);
+        AddRowToItemsTable(itemsDataTable, rowData);
+    end
+
+    catalogSearchForm.Grid.GridControl.DataSource = itemsDataTable;
+    BuildGridColumnsFromTable(itemsDataTable);
+    catalogSearchForm.Grid.GridControl:EndUpdate();
+
+    catalogSearchForm.Grid.GridControl.Enabled = true;
+    ApplyAutoGrouping();
+end
+
 function PopulateDataGrid()
     LogDebug("Current Record URI: " .. currentRecordUri);
 
@@ -579,34 +651,7 @@ function PopulateDataGrid()
             return;
         end
 
-        local recordFields = {};
-        if pluginData.fields then
-            for k, v in pairs(pluginData.fields) do
-                if type(v) == "string" or type(v) == "number" or type(v) == "boolean" then
-                    recordFields[k] = tostring(v);
-                end
-            end
-        end
-
-        local itemsDataTable = CreateItemsTable(CollectFieldNames(pluginData.fields, instances));
-        catalogSearchForm.Grid.GridControl:BeginUpdate();
-
-        for _, instance in ipairs(instances) do
-            -- Fresh copy per row so one instance's fields can't bleed into the next
-            local rowData = {};
-            for k, v in pairs(recordFields) do
-                rowData[k] = v;
-            end
-            PopulateInstanceFieldsFromPlugin(rowData, instance);
-            AddRowToItemsTable(itemsDataTable, rowData);
-        end
-
-        catalogSearchForm.Grid.GridControl.DataSource = itemsDataTable;
-        BuildGridColumnsFromTable(itemsDataTable);
-        catalogSearchForm.Grid.GridControl:EndUpdate();
-
-        catalogSearchForm.Grid.GridControl.Enabled = true;
-        ApplyAutoGrouping();
+        PopulateGridFromPluginData(pluginData, instances);
 
     elseif (string.match(currentRecordUri, HostAppInfo.PageUri["Accession"])) then
 
@@ -624,37 +669,17 @@ function PopulateDataGrid()
             return;
         end
 
-        local recordFields = {};
-        if pluginData.fields then
-            for k, v in pairs(pluginData.fields) do
-                if type(v) == "string" or type(v) == "number" or type(v) == "boolean" then
-                    recordFields[k] = tostring(v);
-                end
-            end
-        end
-
-        local itemsDataTable = CreateItemsTable(CollectFieldNames(pluginData.fields, instances));
-        catalogSearchForm.Grid.GridControl:BeginUpdate();
-
-        for _, instance in ipairs(instances) do
-            -- Fresh copy per row so one instance's fields can't bleed into the next
-            local rowData = {};
-            for k, v in pairs(recordFields) do
-                rowData[k] = v;
-            end
-            PopulateInstanceFieldsFromPlugin(rowData, instance);
-            AddRowToItemsTable(itemsDataTable, rowData);
-        end
-
-        catalogSearchForm.Grid.GridControl.DataSource = itemsDataTable;
-        BuildGridColumnsFromTable(itemsDataTable);
-        catalogSearchForm.Grid.GridControl:EndUpdate();
-
-        catalogSearchForm.Grid.GridControl.Enabled = true;
-        ApplyAutoGrouping();
+        PopulateGridFromPluginData(pluginData, instances);
     end
 end
 
+-- PopulateAllInstances bulk-loads every archival object under a resource into
+-- the grid at once. It is NOT currently wired up — the addon populates the grid
+-- one selected tree node at a time instead. Kept (commented out) pending a
+-- decision with Katie on whether a "load all instances" action is wanted.
+-- NOTE: this makes one synchronous plugin request per archival object, so it
+-- would hang the client on a large finding aid and needs batching before use.
+--[==[
 function PopulateAllInstances(resourceUri)
     LogDebug("PopulateAllInstances: " .. resourceUri);
 
@@ -743,6 +768,7 @@ function PopulateAllInstances(resourceUri)
     catalogSearchForm.Grid.GridControl.Enabled = true;
     ApplyAutoGrouping();
 end
+--]==]
 
 function AddRowToItemsTable(itemsDataTable, availableData)
     -- Records can differ in which fields the plugin returns (e.g. per-AO
@@ -871,12 +897,29 @@ function ArchivesSpaceGetRequest(sessionId, uri)
     return response;
 end
 
--- Values are imported untruncated — the client/database handles values that
--- exceed a field's column length (see MIGRATION_PLAN.md testing notes).
+-- Aeon system-level fields the plugin merges into every record. The addon
+-- deliberately does not import them: they identify the source system and, for
+-- Site, drive request routing — overwriting them from an ArchivesSpace record
+-- was never requested (work item 35989) and could misroute the transaction.
+local SYSTEM_FIELDS_NOT_IMPORTED = {
+    SystemID = true,
+    Site = true,
+    ReturnLinkURL = true,
+    ReturnLinkSystemName = true,
+};
+
+-- Over-length values are not truncated here. If a value exceeds its Aeon column
+-- length, the client's SetFieldValue silently fails to set the field (the
+-- underlying error is caught and logged, not raised), so we rely on the plugin's
+-- per-field max_length to keep values within range.
 function ImportField(target, fieldValue)
+    if SYSTEM_FIELDS_NOT_IMPORTED[target] then
+        return;
+    end
+
     if ((fieldValue ~= nil) and (fieldValue ~= "") and (fieldValue ~= types["System.DBNull"].Value)) then
-        if target:find("^CustomFields%.") then
-            local shortName = target:sub(14);
+        local shortName = target:match("^CustomFields%.(.+)");
+        if shortName then
             SetFieldValue("Transaction.CustomFields", shortName, fieldValue);
         else
             SetFieldValue("Transaction", target, fieldValue);
@@ -963,14 +1006,6 @@ function NavigateToLogin()
 end
 
 function SetDefaultRepository()
-    -- Always (re)register the post-login AutoSearch handler, regardless of
-    -- whether a default repository is configured.
-    if (settings.AutoSearch) then
-        catalogSearchForm.Browser:RegisterPageHandler("custom", "IsSignedIn", "AutoSearchAfterLogin", true);
-    else
-        LogDebug("AutoSearch is disabled. Skipping page handler registration to perform autosearch functionality.")
-    end
-
     -- ArchivesSpace already selects a repository on login, so we only override
     -- it when the staff explicitly configured a default.
     if (settings.DefaultRepositoryId == nil or settings.DefaultRepositoryId == "") then
@@ -1213,26 +1248,4 @@ function ParseCSVLine(line,sep)
         end
     end
     return res;
-end
-
-function GetWebExceptionMessage(exception)
-	local message = "";
-
-	if exception and exception.Message then
-		message = exception.Message;
-		if (exception.InnerException) then
-			message = message .. "\r\n" .. GetWebExceptionMessage(exception.InnerException);
-
-			if exception.InnerException.Response and exception.InnerException.Response ~= "Response" then
-				-- This is necessary to get the response body from exceptions thrown by WebClients.
-				local streamReader = types["System.IO.StreamReader"](exception.InnerException.Response:GetResponseStream());
-				local responseContent = streamReader:ReadToEnd();
-				LogDebug("Web exception response: \r\n" .. responseContent);
-			end
-		end
-	elseif exception then
-		message = exception;
-	end
-
-	return message;
 end
