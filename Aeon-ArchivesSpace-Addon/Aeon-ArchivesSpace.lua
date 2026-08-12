@@ -50,6 +50,10 @@ local currentRecordUri = "";
 local gridColumns = {};
 
 local performedAutoSearch = false;
+-- Set by SetDefaultRepository on every path through it; ReadyForAutoSearch
+-- waits on these so an auto search cannot race the repository switch.
+local defaultRepositoryHandled = false;
+local defaultRepositorySelected = false;
 local transactionNumber = 0;
 
 local archiveSpaceAddonScript = [[
@@ -248,8 +252,14 @@ function InitializeLoginPageHandler()
     -- of each page-load check, so a handler that registers another one mid-check
     -- doesn't get evaluated until a later page load — which never comes when no
     -- default repository is set (SetDefaultRepository returns without navigating).
+    -- The matcher is ReadyForAutoSearch, NOT IsSignedIn: all critical handlers
+    -- run in the same check cycle, so an IsSignedIn match would fire the auto
+    -- search right after SetDefaultRepository starts the repository switch and
+    -- the two navigations would race. ReadyForAutoSearch returns false until
+    -- the switch has completed (an unmatched handler stays registered and is
+    -- re-evaluated on later page loads).
     if (settings.AutoSearch) then
-        catalogSearchForm.Browser:RegisterPageHandler("custom", "IsSignedIn", "AutoSearchAfterLogin", true);
+        catalogSearchForm.Browser:RegisterPageHandler("custom", "ReadyForAutoSearch", "AutoSearchAfterLogin", true);
     end
     catalogSearchForm.Browser:RegisterPageHandler("custom", "AlwaysTrue", "InjectScriptBridge", false);
 end
@@ -475,6 +485,15 @@ function ItemsGridFocusedRowChanged(sender, args)
     end;
 end
 
+-- Re-enables Import Instance when the grid still has a focused row. The
+-- focused-row event above only fires when the focused row CHANGES, so a
+-- blanket disable (the double-click guard in ImportCitation_Clicked) would
+-- otherwise leave the button dead until the staff select a different row.
+function SetInstanceImportButtonEnabledFromGrid()
+    local focusedRow = catalogSearchForm.Grid.GridControl.MainView:GetFocusedRow();
+    catalogSearchForm.ImportInstanceButton.BarButton.Enabled = (focusedRow ~= nil);
+end
+
 function SetImportButtonsDisabled()
     catalogSearchForm.ImportInstanceButton.BarButton.Enabled = false;
     catalogSearchForm.ImportCitationButton.BarButton.Enabled = false;
@@ -515,16 +534,27 @@ function GetPluginEndpointUrl(recordUri)
     return nil;
 end
 
+-- The plugin keeps a fully independent mapping set per consumer (configured
+-- in the ArchivesSpace staff UI under Plug-ins -> Aeon Mapping), restoring
+-- the separate instance/citation import configurability the pre-4.0 addon
+-- had via its InstanceDataImport/CitationDataImport tables. Every data call
+-- must name its consumer; the plugin rejects requests without one (400).
+local INSTANCE_IMPORT_CONSUMER = "aspace_client_addon_instance_import";
+local CITATION_IMPORT_CONSUMER = "aspace_client_addon_citation_import";
+
+-- consumer: which of the plugin's mapping sets to apply (required — one of
+-- the constants above).
 -- includeInstances: instance/container data is opt-in on the plugin's
 -- endpoints. Grid-population calls request it (with digital-object
 -- instances); citation-import calls omit it and get only `fields`.
-function GetPluginData(sessionId, recordUri, includeInstances)
+function GetPluginData(sessionId, recordUri, consumer, includeInstances)
     local pluginUrl = GetPluginEndpointUrl(recordUri);
     if pluginUrl == nil then
         return nil;
     end
+    pluginUrl = pluginUrl .. "?consumer=" .. consumer;
     if includeInstances then
-        pluginUrl = pluginUrl .. "?include_instances=true&include_digital_objects=true";
+        pluginUrl = pluginUrl .. "&include_instances=true&include_digital_objects=true";
     end
     return ArchivesSpaceGetRequest(sessionId, pluginUrl);
 end
@@ -622,7 +652,7 @@ function PopulateDataGrid()
     if (string.match(currentRecordUri, HostAppInfo.PageUri["ArchivalObject"])) then
 
         local sessionId = GetSessionId();
-        local pluginData = GetPluginData(sessionId, currentRecordUri, true);
+        local pluginData = GetPluginData(sessionId, currentRecordUri, INSTANCE_IMPORT_CONSUMER, true);
 
         if pluginData == nil then
             LogDebug("Could not retrieve plugin data.");
@@ -637,7 +667,7 @@ function PopulateDataGrid()
             local archivalObject = ArchivesSpaceGetRequest(sessionId, currentRecordUri);
             local resourceUri = ExtractSubproperty(archivalObject, "resource", "ref");
             if resourceUri then
-                local resourcePluginData = GetPluginData(sessionId, resourceUri, true);
+                local resourcePluginData = GetPluginData(sessionId, resourceUri, INSTANCE_IMPORT_CONSUMER, true);
                 if resourcePluginData and resourcePluginData.instances and
                    resourcePluginData.instances ~= JsonParser.NIL and #resourcePluginData.instances > 0 then
                     LogDebug("Using Resource instances.");
@@ -656,7 +686,7 @@ function PopulateDataGrid()
     elseif (string.match(currentRecordUri, HostAppInfo.PageUri["Accession"])) then
 
         local sessionId = GetSessionId();
-        local pluginData = GetPluginData(sessionId, currentRecordUri, true);
+        local pluginData = GetPluginData(sessionId, currentRecordUri, INSTANCE_IMPORT_CONSUMER, true);
 
         if pluginData == nil then
             LogDebug("Could not retrieve plugin data.");
@@ -686,7 +716,7 @@ function PopulateAllInstances(resourceUri)
     local sessionId = GetSessionId();
 
     -- Get resource-level data from plugin
-    local resourcePluginData = GetPluginData(sessionId, resourceUri, true);
+    local resourcePluginData = GetPluginData(sessionId, resourceUri, INSTANCE_IMPORT_CONSUMER, true);
     if resourcePluginData == nil then
         LogDebug("Could not retrieve resource plugin data.");
         return;
@@ -717,7 +747,7 @@ function PopulateAllInstances(resourceUri)
 
         -- Only process archival objects (skip the resource itself)
         if string.match(recordUri, HostAppInfo.PageUri["ArchivalObject"]) then
-            local pluginData = GetPluginData(sessionId, recordUri, true);
+            local pluginData = GetPluginData(sessionId, recordUri, INSTANCE_IMPORT_CONSUMER, true);
 
             if pluginData == nil then
                 LogDebug("Could not retrieve plugin data for: " .. recordUri);
@@ -820,11 +850,11 @@ function ImportCitation_Clicked()
     SetImportButtonsDisabled();
 
     local sessionId = GetSessionId();
-    local pluginData = GetPluginData(sessionId, currentRecordUri);
+    local pluginData = GetPluginData(sessionId, currentRecordUri, CITATION_IMPORT_CONSUMER);
 
-    -- Import every field the plugin returns — the plugin's mapping rules
-    -- (configurable in the ArchivesSpace staff UI) decide what maps to what;
-    -- the addon just delivers the values.
+    -- Import every field the plugin returns — the plugin's citation-import
+    -- mapping rules (configurable in the ArchivesSpace staff UI) decide what
+    -- maps to what; the addon just delivers the values.
     if pluginData ~= nil and pluginData.fields ~= nil then
         for fieldName, value in pairs(pluginData.fields) do
             if value ~= nil and value ~= JsonParser.NIL and tostring(value) ~= "" then
@@ -841,6 +871,7 @@ function ImportCitation_Clicked()
     end
 
     SetCitationImportButtonsEnabled();
+    SetInstanceImportButtonEnabledFromGrid();
     SwitchToDetailsTab();
 end
 
@@ -1007,14 +1038,18 @@ end
 
 function SetDefaultRepository()
     -- ArchivesSpace already selects a repository on login, so we only override
-    -- it when the staff explicitly configured a default.
+    -- it when the staff explicitly configured a default. Every path through
+    -- this function sets defaultRepositoryHandled, and a started switch also
+    -- sets defaultRepositorySelected; ReadyForAutoSearch reads both.
     if (settings.DefaultRepositoryId == nil or settings.DefaultRepositoryId == "") then
         LogDebug("No default repository configured. Leaving the ArchivesSpace default in place.");
+        defaultRepositoryHandled = true;
         return;
     end
 
     if (not string.match(settings.DefaultRepositoryId, "^%d+$")) then
         LogDebug("DefaultRepositoryId '" .. settings.DefaultRepositoryId .. "' is not a valid numeric repository ID. Leaving the ArchivesSpace default in place.");
+        defaultRepositoryHandled = true;
         return;
     end
 
@@ -1054,12 +1089,14 @@ function SetDefaultRepository()
     local jsResult = catalogSearchForm.Browser:EvaluateScript(setDefaultRepositoryScript);
     if (not jsResult.Success) then
         LogDebug("Error evaluating the default-repository script: " .. tostring(jsResult.Message));
+        defaultRepositoryHandled = true;
         return;
     end
 
     local status = jsResult.Result;
     if (status == "ok") then
         LogDebug("Set default repository to repository ID " .. settings.DefaultRepositoryId);
+        defaultRepositorySelected = true;
     elseif (status == "not-found") then
         LogDebug("Configured default repository ID " .. settings.DefaultRepositoryId .. " is not an available repository. Leaving the ArchivesSpace default in place.");
     elseif (status == "no-select") then
@@ -1067,6 +1104,53 @@ function SetDefaultRepository()
     elseif (status == "no-button") then
         LogDebug("Could not find the Select Repository button to set default repository ID " .. settings.DefaultRepositoryId .. ".");
     end
+
+    defaultRepositoryHandled = true;
+end
+
+-- Match function for the AutoSearchAfterLogin page handler. All critical page
+-- handlers run in the same page-load check, in registration order, and the
+-- check does not stop after a handler executes (see
+-- WebView2Browser.CheckHandlerQueueTask in AtlasSystems.Scripting). Matching
+-- on IsSignedIn alone would start the auto search in the same check that
+-- SetDefaultRepository starts the repository switch, and the two navigations
+-- would race. A false match keeps the handler registered for later page
+-- loads, so this waits until the switch has completed or was never started.
+function ReadyForAutoSearch()
+    if (not CheckIfUserSignedIn()) then
+        return false;
+    end
+
+    -- SetDefaultRepository registers first and runs earlier in the same
+    -- check, so this flag is already set on the first signed-in page load.
+    if (not defaultRepositoryHandled) then
+        return false;
+    end
+
+    -- A repository switch was started: wait for the post-switch page.
+    if (defaultRepositorySelected) then
+        return CurrentRepositoryMatchesDefault();
+    end
+
+    return true;
+end
+
+function CurrentRepositoryMatchesDefault()
+    local jsResult = catalogSearchForm.Browser:EvaluateScript([[
+        (function() {
+            var repositoryLink = document.querySelector('.repo-container > .btn-group > a[href*="/repositories/"]');
+            if (!repositoryLink) { return ''; }
+            var match = /\/repositories\/(\d+)/.exec(repositoryLink.href);
+            return match ? match[1] : '';
+        })()
+    ]]);
+
+    if (not jsResult.Success) then
+        LogDebug("Error reading the current repository: " .. tostring(jsResult.Message));
+        return false;
+    end
+
+    return tostring(jsResult.Result) == settings.DefaultRepositoryId;
 end
 
 function AutoSearchAfterLogin()
