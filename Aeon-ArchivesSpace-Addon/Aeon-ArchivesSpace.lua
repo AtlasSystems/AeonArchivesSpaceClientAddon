@@ -548,6 +548,14 @@ local CITATION_IMPORT_CONSUMER = "aspace_client_addon_citation_import";
 -- endpoints. Grid-population calls request it (with digital-object
 -- instances); citation-import calls omit it and get only `fields`.
 function GetPluginData(sessionId, recordUri, consumer, includeInstances)
+    -- The plugin rejects requests without a consumer (400), and a nil here
+    -- would otherwise surface as a raw concatenation error below. Fail with
+    -- a clear log line instead so a future call site can't forget it.
+    if consumer == nil or consumer == "" then
+        LogDebug("GetPluginData called without a consumer key. No request was made.");
+        return nil;
+    end
+
     local pluginUrl = GetPluginEndpointUrl(recordUri);
     if pluginUrl == nil then
         return nil;
@@ -703,106 +711,9 @@ function PopulateDataGrid()
     end
 end
 
--- PopulateAllInstances bulk-loads every archival object under a resource into
--- the grid at once. It is NOT currently wired up — the addon populates the grid
--- one selected tree node at a time instead. Kept (commented out) pending a
--- decision with Katie on whether a "load all instances" action is wanted.
--- NOTE: this makes one synchronous plugin request per archival object, so it
--- would hang the client on a large finding aid and needs batching before use.
---[==[
-function PopulateAllInstances(resourceUri)
-    LogDebug("PopulateAllInstances: " .. resourceUri);
-
-    local sessionId = GetSessionId();
-
-    -- Get resource-level data from plugin
-    local resourcePluginData = GetPluginData(sessionId, resourceUri, INSTANCE_IMPORT_CONSUMER, true);
-    if resourcePluginData == nil then
-        LogDebug("Could not retrieve resource plugin data.");
-        return;
-    end
-
-    -- Get all record URIs via ordered_records
-    local orderedRecords = ArchivesSpaceGetRequest(sessionId, resourceUri .. "/ordered_records");
-    if orderedRecords == nil or orderedRecords.uris == nil or orderedRecords.uris == JsonParser.NIL then
-        LogDebug("Could not retrieve ordered records.");
-        return;
-    end
-
-    -- Shared resource-level data
-    local sharedData = {};
-    if resourcePluginData.fields then
-        for k, v in pairs(resourcePluginData.fields) do
-            if type(v) == "string" or type(v) == "number" or type(v) == "boolean" then
-                sharedData[k] = tostring(v);
-            end
-        end
-    end
-
-    local itemsDataTable = CreateItemsTable(CollectFieldNames(resourcePluginData.fields, resourcePluginData.instances));
-    catalogSearchForm.Grid.GridControl:BeginUpdate();
-
-    for _, record in ipairs(orderedRecords.uris) do
-        local recordUri = record.ref;
-
-        -- Only process archival objects (skip the resource itself)
-        if string.match(recordUri, HostAppInfo.PageUri["ArchivalObject"]) then
-            local pluginData = GetPluginData(sessionId, recordUri, INSTANCE_IMPORT_CONSUMER, true);
-
-            if pluginData == nil then
-                LogDebug("Could not retrieve plugin data for: " .. recordUri);
-            else
-                -- Record-level fields for this AO's rows: resource-level
-                -- fields as the base, overlaid with the AO's own fields
-                local recordFields = {};
-                for k, v in pairs(sharedData) do
-                    recordFields[k] = v;
-                end
-                if pluginData.fields then
-                    for k, v in pairs(pluginData.fields) do
-                        if type(v) == "string" or type(v) == "number" or type(v) == "boolean" then
-                            recordFields[k] = tostring(v);
-                        end
-                    end
-                end
-
-                local instances = pluginData.instances;
-
-                -- Fallback to resource instances if the AO has none
-                if (instances == nil or instances == JsonParser.NIL or #instances == 0) and
-                   resourcePluginData.instances and resourcePluginData.instances ~= JsonParser.NIL and
-                   #resourcePluginData.instances > 0 then
-                    LogDebug("Archival Object has no instances. Using Resource instances.");
-                    instances = resourcePluginData.instances;
-                end
-
-                if instances and instances ~= JsonParser.NIL and #instances > 0 then
-                    for _, instance in ipairs(instances) do
-                        -- Fresh copy per row so one instance's fields can't bleed into the next
-                        local rowData = {};
-                        for k, v in pairs(recordFields) do
-                            rowData[k] = v;
-                        end
-                        PopulateInstanceFieldsFromPlugin(rowData, instance);
-                        AddRowToItemsTable(itemsDataTable, rowData);
-                    end
-                end
-            end
-        end
-    end
-
-    catalogSearchForm.Grid.GridControl.DataSource = itemsDataTable;
-    BuildGridColumnsFromTable(itemsDataTable);
-    catalogSearchForm.Grid.GridControl:EndUpdate();
-
-    catalogSearchForm.Grid.GridControl.Enabled = true;
-    ApplyAutoGrouping();
-end
---]==]
-
 function AddRowToItemsTable(itemsDataTable, availableData)
-    -- Records can differ in which fields the plugin returns (e.g. per-AO
-    -- fields during a bulk load), so make sure every field has a column
+    -- Records can differ in which fields the plugin returns, so make sure
+    -- every field has a column
     for fieldName, _ in pairs(availableData) do
         if not itemsDataTable.Columns:Contains(fieldName) then
             itemsDataTable.Columns:Add(fieldName);
