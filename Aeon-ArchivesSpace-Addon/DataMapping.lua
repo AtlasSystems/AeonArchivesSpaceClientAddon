@@ -18,7 +18,7 @@ ASpaceSearchCode["Notes"] = "notes"
 ASpaceSearchCode["Subject"] = "subjects"
 ASpaceSearchCode["Title"] = "title"
 
---Search Mapping
+-- Search Mapping
 HostAppInfo.SearchMapping["Title"] =
 {
   AeonSourceField = "ItemTitle",
@@ -37,91 +37,11 @@ HostAppInfo.SearchMapping["CallNumber"] =
   ASpaceSearchType = ASpaceSearchCode["Identifier"]
 }
 
--- Object Instance Mapping
-HostAppInfo.InstanceDataImport = {};
-
-HostAppInfo.InstanceDataImport["Title"] =
-{
-  AeonField = "ItemTitle", AspaceData = "ResourceTitle", FieldLength = 255, ItemGridColumn = "Title"
-}
-
-HostAppInfo.InstanceDataImport["CallNumber"] =
-{
-  AeonField = "CallNumber", AspaceData = "EadId", FieldLength = 255, ItemGridColumn = "CallNumber"
-}
-
-HostAppInfo.InstanceDataImport["SubTitle"] =
-{
-  AeonField = "ItemSubtitle", AspaceData = "ArchivalObjectTitle", FieldLength = 255, ItemGridColumn = "SubTitle"
-}
-
-HostAppInfo.InstanceDataImport["Author"] =
-{
-  AeonField = "ItemAuthor", AspaceData = "Creators", FieldLength = 255, ItemGridColumn = "Author"
-}
-
-HostAppInfo.InstanceDataImport["Volume"] =
-{
-  AeonField = "ItemVolume", AspaceData = "ArchivalObjectInstance", FieldLength = 255, ItemGridColumn = "Volume"
-}
-
-HostAppInfo.InstanceDataImport["Barcode"] =
-{
-  AeonField = "ItemNumber", AspaceData = "ArchivalObjectInstanceBarcode", FieldLength = 50, ItemGridColumn = "Barcode"
-}
-
-HostAppInfo.InstanceDataImport["Location"] =
-{
-  AeonField = "Location", AspaceData = "ArchivalObjectContainerLocation", FieldLength = 255, ItemGridColumn = "Location"
-}
-
--- Resource Citation Import Mapping
-HostAppInfo.CitationDataImport = {}
-
-HostAppInfo.CitationDataImport["Resource"] = {
-  {
-    AeonField = "ItemTitle", AspaceData = "Title", FieldLength = 255
-  },
-  {
-    AeonField = "ItemAuthor", AspaceData = "Creators", FieldLength = 255
-  },
-  {
-    AeonField = "ItemSubtitle", AspaceData = "FindingAidTitle", FieldLength = 255
-  },
-  {
-    AeonField = "ItemDate", AspaceData = "DateExpression", FieldLength = 50
-  }
-}
-
-HostAppInfo.CitationDataImport["Accession"] = {
-  {
-    AeonField = "ItemTitle", AspaceData = "Title", FieldLength = 255
-  },
-  {
-    AeonField = "ItemAuthor", AspaceData = "CreatedBy", FieldLength = 255
-  },
-  {
-    AeonField = "ItemDate", AspaceData = "DateExpression", FieldLength = 50
-  }
-}
-
-HostAppInfo.CitationDataImport["DigitalObject"] = {
-  {
-    AeonField = "ItemTitle", AspaceData = "Title", FieldLength = 255
-  },
-  {
-    AeonField = "ItemAuthor", AspaceData = "Creators", FieldLength = 255
-  },
-  {
-    AeonField = "ItemSubtitle", AspaceData = "FindingAidTitle", FieldLength = 255
-  },
-  {
-    AeonField = "ItemDate", AspaceData = "DateExpression", FieldLength = 50
-  },
-  {
-    AeonField = "Location", AspaceData = "FileUri", FieldLength = 255
-  }
-}
+-- NOTE: This addon no longer defines any field mapping. All ArchivesSpace →
+-- Aeon field mapping is configured in the ArchivesSpace Data Handler plugin
+-- (Plug-ins → Aeon Mapping in the ArchivesSpace staff interface). The addon
+-- imports every field the plugin returns, and grid columns are created
+-- dynamically from those fields.
 
 -- Page URIs
 HostAppInfo.PageUri["ArchivalObject"] = "repositories/%d+/archival_objects/%d+";

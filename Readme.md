@@ -2,6 +2,23 @@
 
 ## Version
 
+- 4.0.0:
+    - All ArchivesSpace-to-Aeon field mapping is now handled by the companion
+      **ArchivesSpace Data Handler plugin**, which must be installed on the
+      ArchivesSpace server. Mappings are configured in the ArchivesSpace staff
+      interface (Plug-ins → Aeon Mapping) instead of in `DataMapping.lua`, and
+      the addon imports every field the plugin returns — including mappings to
+      Aeon custom fields (`CustomFields.YourFieldName`).
+    - The results grid's columns are now created dynamically from the fields
+      returned by the plugin. The new `GridDisplayFields` setting controls
+      which fields are displayed as columns and in what order; fields not
+      displayed are still imported.
+    - Added the `AutoGroupField` setting, which names the field to group the
+      results grid by when `AutoGroupResults` is enabled. Removed the
+      `ImportDataSeparator` setting (concatenation is configured in the
+      plugin's mapping rules).
+    - Imported values are no longer truncated by the addon.
+    - Added support for importing container instances on Accession records.
 - 3.0.3:
     - A UserAgent HTTP Header is sent in API calls to better support ArchivesSapces hosted by Lyrasis.
     - Better support for ArchivesSpace LibraryHost instances where the AppPrefix is not standard.
@@ -28,6 +45,8 @@
 
 ## Summary
 This addon is used to integrate the ArchivesSpace staff interface into the Aeon Client request form so that staff can search the records of their ArchivesSpace instance and import details into Aeon requests.
+
+The addon supports ArchivesSpace v2.8.0 and later, and as of version 4.0.0 it requires the **ArchivesSpace Data Handler plugin** (version 2.0.0 or later) to be installed on the ArchivesSpace server. The plugin returns record data already mapped to Aeon field names; all field mapping is configured there (in the ArchivesSpace staff interface under Plug-ins → Aeon Mapping), not in the addon. The addon uses two of the plugin's mapping applications, each configurable independently in that UI: **ArchivesSpace Client Addon — Instance Import** (key `aspace_client_addon_instance_import`) for the container/instance grid, and **ArchivesSpace Client Addon — Citation Import** (key `aspace_client_addon_citation_import`) for the Import Citation button. The display names are editable in the plugin, but the keys are fixed. They are what the addon sends on every data call, and what the plugin's error messages name during troubleshooting.
 
 ## Installation
 This addon requires two Lua libraries that are included in the distribution.
@@ -70,12 +89,34 @@ A comma-separated list of searches to be performed in order.
 
 ### AutoGroupResults
 
-Specifies whether the results grid should be grouped automatically. The table
-will be grouped by the "Volume" column, which refers to either the instance's
-top container display string or digital object title.
+Specifies whether the results grid should be grouped automatically by the field named in the `AutoGroupField` setting.
 
-## Data Mapping
-The `DataMapping.lua` file contains mappings that can be modified in order to fine-tune the addon to a particular instanance of ArchivesSpace. Examples of mapping includes adjusting the ArchivesSpace search types to specific Aeon fields, the mapping between Aeon fields and the different ArchivesSpace object types, and the patterns used to identify the types of pages the user is on.
+### AutoGroupField
+
+The Aeon field (as returned by the ArchivesSpace Data Handler plugin) to group the results grid by when `AutoGroupResults` is enabled. Must also be listed in `GridDisplayFields` (when that setting is used). The default, `ItemVolume`, holds the instance's top container display string or digital object title under the plugin's default mappings.
+
+### GridDisplayFields
+
+A comma-separated list of the fields (as returned by the ArchivesSpace Data Handler plugin) to display as columns in the results grid, in order. Fields not listed are still imported when a row is imported; they just aren't displayed. Leave blank to display every returned field.
+
+Default value: `ItemTitle, CallNumber, ItemSubtitle, ItemAuthor, ItemVolume, ItemNumber, Location`
+
+### DefaultRepositoryId
+
+The numeric ID of the ArchivesSpace repository to select by default after signing in. Leave blank to keep ArchivesSpace's own behavior.
+
+## Field Mapping
+
+All ArchivesSpace-to-Aeon field mapping is configured in the **ArchivesSpace Data Handler plugin**, in the ArchivesSpace staff interface under **Plug-ins → Aeon Mapping**. The addon imports every field the plugin returns:
+
+- **Citation import** imports the record-level fields for the resource, accession, or digital object being viewed.
+- **Instance import** shows one grid row per container or digital-object instance (record-level fields plus per-instance fields) and imports the selected row — including fields not displayed in the grid. Grid columns are created dynamically from the returned fields (filtered and ordered by the `GridDisplayFields` setting), with the field names as captions.
+- A field mapped to an Aeon custom field (target name `CustomFields.YourShortName`) is imported into that custom field. Fields whose names don't match an Aeon transaction field or custom field are displayed in the grid but skipped on import.
+
+See the plugin's documentation for the default mappings and how to customize them per repository.
+
+## DataMapping.lua
+The `DataMapping.lua` file contains the remaining addon-side configuration — how the addon's search buttons map to ArchivesSpace searches, and the URL patterns used to identify record pages. It no longer contains any field mapping.
 
 > **Note:** Be sure to back-up the `DataMapping.lua` file before modifying. Incorrect modifications may break the addon.
 
@@ -86,64 +127,6 @@ ASpaceSearchCode defines the keyword in the search url that defines the type of 
 
 ### SearchMapping
 SearchMapping defines the relationship between an Aeon field and the type of ArchivesSpace search will be performed. The `AeonSourceField` takes an Aeon Transaction's field and the `ASpaceSearchType` takes an ASpaceSearchCode from the mapping above.
-
-### InstanceDataImport
-InstanceDataImport establishes the mapping between an Aeon field and data from ArchivesSpace. The mapping also requires the field length of the Aeon field and the column the data will be placed into in the addon's item grid.
-
-> **Note:** Information about the Aeon Database such as field names and lenths can be found [here](https://prometheus.atlas-sys.com/display/aeon/Aeon+Database+Tables)
-
-#### Item Grid Fields
-- Title
-- SubTitle
-- Call Number
-- Author
-- Volume
-
-#### Available ArchivesSpace Data- *Archival Object*
-
-| Data Mapping Name               | Description                                                                               | ArchivesSpace API Property                                          |
-|---------------------------------|-------------------------------------------------------------------------------------------|---------------------------------------------------------------------|
-| ArchivalObjectTitle             | The title of the archival object                                                          | `archival_objects > title`                                          |
-| ResourceTitle                   | The title of the resource that the archival object belongs to                             | `resources > title`                                                 |
-| EadId                           | The resource's EAD ID                                                                     | `resources > ead_id`                                                |
-| Creators                        | The primary names of the creators associated with the archival object delimited by a `;`  | `agents > people > display_name > primary_name`                     |
-| ArchivalObjectInstance          | The display string of the archival object's instance's top container or digital object.   | `top_container > long_display_string` (OR) `digital_object > title` |
-| ArchivalObjectInstanceBarcode   | The barcode or ID of the archival object's instance's top container or digital object.    | `top_container > barcode` (OR) `digital_object > digital_object_id` |
-| ArchivalObjectContainerLocation | The title of the container's location if the instance is a top container instance.        | `location > title`                                                  |
-
->**Important:** Do **not** modify the `HostAppInfo.InstanceDataImport` table name (E.G. *HostAppInfo.InstanceDataImport[{**Table Name**}]*). The addon uses the table name to find the information. The data within the table, however, is designed to be customized.
-
-### CitationDataImport
-Citation data can be imported when a specific instance of an object can't be imported or isn't supported yet. The citation data can be imported for `Resources`, `Accessions`, and `Digital Objects`. Each citation data type has its own mappings.
-
-#### Available ArchivesSpace Data- *Resources*
-| Data Mapping Name | Description                                                                               | ArchivesSpace API Property                    |
-|-------------------|-------------------------------------------------------------------------------------------|-----------------------------------------------|
-| Title             | The title of the resource                                                                 | resources > title                             |
-| FindingAidTitle   | The title of the resource that the archival object belongs to                             | resources > finding_aid_title                 |
-| DateExpression    | The date expression of the resource                                                       | resources > dates > date_expression           |
-| Creators          | The primary names, delimited by a `;`, of the creators associated with the resource  | agents > people > display_name > primary_name |
-| CreatedBy         | The user that created the record                                                          | resources > created_by                        |
-| EadId             | The EAD ID of the resource                                                                | resources > ead_id                            |
-
-#### Available ArchivesSpace Data- *Accessions*
-| Data Mapping Name | Description                                 | ArchivesSpace API Property           |
-|-------------------|---------------------------------------------|--------------------------------------|
-| Title             | The title of the accession                  | accessions > title                   |
-| DisplayString     | The display string of the accession record  | accessions > display_string          |
-| DateExpression    | The date expression of the accession record | accessions > dates > date_expression |
-| CreatedBy         | The user that created the record            | accessions > created_by              |
-| AccessionDate     | The date the accession was created          | accessions > accession_date          |
-
-#### Available ArchivesSpace Data- *Digital Objects*
-| Data Mapping Name | Description                                                                            | ArchivesSpace API Property                    |
-|-------------------|----------------------------------------------------------------------------------------|-----------------------------------------------|
-| Title             | The title of the digital object                                                             | digital_objects > title                       |
-| DateExpression    | The date expression of the digital object                                              | digital_objects > dates > date_expression     |
-| CreatedBy         | The user that created the record                                                       | digital_objects > created_by                  |
-| FileUri           | The URI to the digital object's file                                              | digital_objects > file_uri                    |
-| Creators          | The primary names, delimited by a `;`, of the creators associated with the digital object | agents > people > display_name > primary_name |
-| DigitalObjectId   | The ID of the digital object                                                           | digital_objects > digital_object_id           |
 
 ### PageUri
 The PageUri mapping is the pattern that identifies the page type the addon is currently on. These are not likely to change from site to site, but can be adjusted if necessary.

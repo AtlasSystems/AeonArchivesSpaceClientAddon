@@ -21,6 +21,9 @@ settings.Username = GetSetting("AS_Username");
 settings.Password = GetSetting("AS_Password");
 settings.AutoSearchPriority = GetSetting("AutoSearchPriority");
 settings.AutoGroupResults = GetSetting("AutoGroupResults");
+settings.AutoGroupField = GetSetting("AutoGroupField");
+settings.GridDisplayFields = GetSetting("GridDisplayFields");
+settings.DefaultRepositoryId = GetSetting("DefaultRepositoryId");
 
 local types = {};
 
@@ -47,6 +50,10 @@ local currentRecordUri = "";
 local gridColumns = {};
 
 local performedAutoSearch = false;
+-- Set by SetDefaultRepository on every path through it; ReadyForAutoSearch
+-- waits on these so an auto search cannot race the repository switch.
+local defaultRepositoryHandled = false;
+local defaultRepositorySelected = false;
 local transactionNumber = 0;
 
 local archiveSpaceAddonScript = [[
@@ -76,12 +83,56 @@ local archiveSpaceAddonScript = [[
 
         //Sets the currentRecordUri
         if (currentRepositoryPath) {
-            // There is an information tree
-            if (window.AjaxTree) {
-                // Sets the Current Resource Path when the Ajax Tree is first loaded
-                var objectId = tree.large_tree.current_tree_id;
-                var objectUrl = buildObjectUrl(objectId);
+            // ArchivesSpace 4.2+ renders resources and archival objects as nodes in
+            // an InfiniteTree; the selected node is marked .current and carries the
+            // full record URI in its data-uri. (The legacy AjaxTree class is still
+            // loaded on these pages, but its `tree` global is gone, so the old
+            // `tree.large_tree.current_tree_id` path throws — hence this replaces it.)
+            if (typeof InfiniteTree === 'function' && document.getElementById('infinite-tree-container')) {
+                var lastTreeUri = null;
+
+                var populateFromCurrentNode = function() {
+                    var currentNode = document.querySelector('#infinite-tree-container .node.current');
+                    if (!currentNode) { return; }
+                    var nodeUri = currentNode.getAttribute('data-uri');
+                    // Dedupe: the initial poll and the nodeSelect event can both fire
+                    // for the same node.
+                    if (!nodeUri || nodeUri === lastTreeUri) { return; }
+                    lastTreeUri = nodeUri;
+                    var objectUrl = buildObjectUrl(currentNode.id);
+                    atlasAddonAsync.executeAddonFunction('NodeChanged', currentRepositoryPath, objectUrl);
+                    atlasAddonAsync.executeAddonFunction('PopulateDataGrid');
+                };
+
+                // Re-populate the grid for whichever node the staff select.
+                // The `true` (capture phase) is REQUIRED, not stylistic:
+                // ArchivesSpace dispatches infiniteTree:nodeSelect as a
+                // non-bubbling CustomEvent on #infinite-tree-record-pane, so a
+                // default bubble-phase listener on document would never fire.
+                document.addEventListener('infiniteTree:nodeSelect', populateFromCurrentNode, true);
+
+                // Initial load: the tree renders asynchronously, so the current node
+                // may not be in the DOM yet. Poll briefly until it appears.
+                var treePollCount = 0;
+                var treePoll = setInterval(function() {
+                    if (document.querySelector('#infinite-tree-container .node.current')) {
+                        clearInterval(treePoll);
+                        populateFromCurrentNode();
+                    } else if (++treePollCount > 25) {
+                        clearInterval(treePoll);
+                    }
+                }, 200);
+            }
+            // ArchivesSpace < 4.2 renders the collection tree with the legacy
+            // AjaxTree instead of InfiniteTree. Guarded on `tree` so this can't
+            // throw on 4.2, where the AjaxTree class is still loaded but the
+            // `tree` instance is gone (that throw is why the InfiniteTree branch
+            // above had to replace it).
+            else if (window.AjaxTree && typeof tree !== 'undefined' && tree.large_tree) {
+                // Populate for the initially-selected node.
+                var objectUrl = buildObjectUrl(tree.large_tree.current_tree_id);
                 atlasAddonAsync.executeAddonFunction('NodeChanged', currentRepositoryPath, objectUrl);
+                atlasAddonAsync.executeAddonFunction('PopulateDataGrid');
 
                 //Try to get the app_prefix to remove any additional web paths from the URL
                 var appPrefix = "/";
@@ -89,13 +140,12 @@ local archiveSpaceAddonScript = [[
                     appPrefix = AS.app_prefix("");
                 }
 
-                // This Injects the NodeChanged function into the Ajax callback that changes the record pages
+                // Re-populate as the staff navigate to other tree nodes.
                 var originalAjaxThePane = AjaxTree.prototype._ajax_the_pane;
                 AjaxTree.prototype._ajax_the_pane = function(url, params, callback) {
-                    //If the appPrefix is anything other than "/", replace it with just "/"
                     var updateUrl = url.replace(appPrefix, "/");
-                    updateUrl.startsWith(updateUrl) ? updateUrl : "/" + updateUrl;
                     atlasAddonAsync.executeAddonFunction('NodeChanged', currentRepositoryPath, updateUrl);
+                    atlasAddonAsync.executeAddonFunction('PopulateDataGrid');
                     //Preserve the original call using the original ASpace URL parameter
                     originalAjaxThePane.call(this, url, params, callback);
                 };
@@ -103,6 +153,7 @@ local archiveSpaceAddonScript = [[
             else {
                 var selectedResourcePath = window.location.pathname;
                 atlasAddonAsync.executeAddonFunction('NodeChanged', currentRepositoryPath, selectedResourcePath);
+                atlasAddonAsync.executeAddonFunction('PopulateDataGrid');
             }
         }
     else {
@@ -113,9 +164,11 @@ local archiveSpaceAddonScript = [[
         $(document).ready(function() {
             atlasAddonAsync.executeAddonFunction('SetCitationImportButtonsEnabled');
         });
-        //Watch for the event to signal the details pane has finished loading
+        //Watch for the event to signal the details pane has finished loading.
+        // The grid tracks the selected tree node (one record at a time), so we
+        // don't bulk-load instances here — we just keep the citation-import
+        // buttons in sync as records load.
         $(document).on('loadedrecordform.aspace', function() {
-            atlasAddonAsync.executeAddonFunction('PopulateDataGrid');
             atlasAddonAsync.executeAddonFunction('SetCitationImportButtonsEnabled');
         });
     }
@@ -193,10 +246,20 @@ function InitializeLoginPageHandler()
     LogDebug("Initializing Login Page Handler");
     catalogSearchForm.Browser:RegisterPageHandler("custom", "LoginPageLoaded", "PerformLogin", true);
     catalogSearchForm.Browser:RegisterPageHandler("custom", "IsNotSignedIn", "NavigateToLogin", true);
+    catalogSearchForm.Browser:RegisterPageHandler("custom", "IsSignedIn", "SetDefaultRepository", true);
+    -- Register AutoSearch here (before sign-in) rather than from inside
+    -- SetDefaultRepository. Critical page handlers are snapshotted at the start
+    -- of each page-load check, so a handler that registers another one mid-check
+    -- doesn't get evaluated until a later page load — which never comes when no
+    -- default repository is set (SetDefaultRepository returns without navigating).
+    -- The matcher is ReadyForAutoSearch, NOT IsSignedIn: all critical handlers
+    -- run in the same check cycle, so an IsSignedIn match would fire the auto
+    -- search right after SetDefaultRepository starts the repository switch and
+    -- the two navigations would race. ReadyForAutoSearch returns false until
+    -- the switch has completed (an unmatched handler stays registered and is
+    -- re-evaluated on later page loads).
     if (settings.AutoSearch) then
-        catalogSearchForm.Browser:RegisterPageHandler("custom", "IsSignedIn", "AutoSearchAfterLogin", true);
-    else
-        LogDebug("AutoSearch is disabled. Skipping page page handler registration to perform autosearch functionality.")
+        catalogSearchForm.Browser:RegisterPageHandler("custom", "ReadyForAutoSearch", "AutoSearchAfterLogin", true);
     end
     catalogSearchForm.Browser:RegisterPageHandler("custom", "AlwaysTrue", "InjectScriptBridge", false);
 end
@@ -223,88 +286,105 @@ function BuildItemsGrid()
     gridView.OptionsBehavior.AutoExpandAllGroups = true;
     gridView.OptionsBehavior.Editable = false;
 
-    -- Item Grid Column Settings
-    local gridColumn;
-    gridColumn = gridView.Columns:Add();
-    gridColumn.Caption = "Title";
-    gridColumn.FieldName = "Title";
-    gridColumn.Name = "gridColumnTitle";
-    gridColumn.Visible = true;
-    gridColumn.OptionsColumn.ReadOnly = true;
-    gridColumn.Width = 50;
-    gridColumns["Title"] = gridColumn;
-
-    gridColumn = gridView.Columns:Add();
-    gridColumn.Caption = "SubTitle";
-    gridColumn.FieldName = "SubTitle";
-    gridColumn.Name = "gridColumnSubTitle";
-    gridColumn.Visible = true;
-    gridColumn.OptionsColumn.ReadOnly = true;
-    gridColumn.Width = 50;
-    gridColumns["SubTitle"] = gridColumn;
-
-    gridColumn = gridView.Columns:Add();
-    gridColumn.Caption = "Call Number";
-    gridColumn.FieldName = "Call Number";
-    gridColumn.Name = "gridColumnCallNumber";
-    gridColumn.Visible = true;
-    gridColumn.OptionsColumn.ReadOnly = true;
-    gridColumn.Width = 50;
-    gridColumns["Call Number"] = gridColumn;
-
-    gridColumn = gridView.Columns:Add();
-    gridColumn.Caption = "Author";
-    gridColumn.FieldName = "Author";
-    gridColumn.Name = "gridColumnAuthor";
-    gridColumn.Visible = true;
-    gridColumn.OptionsColumn.ReadOnly = true;
-    gridColumn.Width = 50;
-    gridColumns["Author"] = gridColumn;
-
-    gridColumn = gridView.Columns:Add();
-    gridColumn.Caption = "Volume";
-    gridColumn.FieldName = "Volume";
-    gridColumn.Name = "gridColumnVolume";
-    gridColumn.Visible = true;
-    gridColumn.OptionsColumn.ReadOnly = true;
-    gridColumn.Width = 50;
-    gridColumns["Volume"] = gridColumn;
-
-    gridColumn = gridView.Columns:Add();
-    gridColumn.Caption = "Barcode";
-    gridColumn.FieldName = "Barcode";
-    gridColumn.Name = "gridColumnBarcode";
-    gridColumn.Visible = true;
-    gridColumn.OptionsColumn.ReadOnly = true;
-    gridColumn.Width = 50;
-    gridColumns["Barcode"] = gridColumn;
-
-    gridColumn = gridView.Columns:Add();
-    gridColumn.Caption = "Location";
-    gridColumn.FieldName = "Location";
-    gridColumn.Name = "gridColumnLocation";
-    gridColumn.Visible = true;
-    gridColumn.OptionsColumn.ReadOnly = true;
-    gridColumn.Width = 50;
-    gridColumns["Location"] = gridColumn;
-
-    catalogSearchForm.Grid.GridControl.DataSource = CreateItemsTable();
+    -- Grid columns are created dynamically from the fields the plugin
+    -- returns for each record — see BuildGridColumnsFromTable.
+    catalogSearchForm.Grid.GridControl.DataSource = CreateItemsTable({});
 
     gridControl:EndUpdate();
     gridView:add_FocusedRowChanged(ItemsGridFocusedRowChanged);
 end
 
-function CreateItemsTable()
+function CreateItemsTable(fieldNames)
     local itemsTable = types["System.Data.DataTable"]();
-    itemsTable.Columns:Add("Title");
-    itemsTable.Columns:Add("SubTitle");
-    itemsTable.Columns:Add("CallNumber");
-    itemsTable.Columns:Add("Author");
-    itemsTable.Columns:Add("Volume");
-    itemsTable.Columns:Add("Barcode");
-    itemsTable.Columns:Add("Location");
-
+    if fieldNames then
+        for _, name in ipairs(fieldNames) do
+            if not itemsTable.Columns:Contains(name) then
+                itemsTable.Columns:Add(name);
+            end
+        end
+    end
     return itemsTable;
+end
+
+-- Rebuilds the grid's UI columns from the DataTable's columns, filtered and
+-- ordered by the GridDisplayFields setting when it's set. Column captions are
+-- the plugin-returned Aeon field names themselves. Fields without a grid
+-- column are still imported with the row; they just aren't displayed.
+function BuildGridColumnsFromTable(itemsDataTable)
+    local gridView = catalogSearchForm.Grid.GridControl.MainView;
+    gridView.Columns:Clear();
+    gridColumns = {};
+
+    local displayFields = GetGridDisplayFields();
+    if displayFields then
+        for _, columnName in ipairs(displayFields) do
+            if itemsDataTable.Columns:Contains(columnName) then
+                AddGridColumn(gridView, columnName);
+            elseif itemsDataTable.Columns.Count > 0 then
+                -- Only warn when the plugin actually returned fields but not
+                -- this one; an empty table means the grid is just being reset.
+                LogDebug("GridDisplayFields entry '" .. columnName .. "' was not returned by the plugin. Skipping column.");
+            end
+        end
+    else
+        -- No display list configured — show every returned field
+        for i = 0, itemsDataTable.Columns.Count - 1 do
+            AddGridColumn(gridView, itemsDataTable.Columns[i].ColumnName);
+        end
+    end
+end
+
+function AddGridColumn(gridView, columnName)
+    local gridColumn = gridView.Columns:Add();
+    gridColumn.Caption = columnName;
+    gridColumn.FieldName = columnName;
+    gridColumn.Visible = true;
+    gridColumn.OptionsColumn.ReadOnly = true;
+    gridColumn.Width = 50;
+    gridColumns[columnName] = gridColumn;
+end
+
+-- Parses the GridDisplayFields setting into an ordered list of field names.
+-- Returns nil when the setting is blank (meaning: display everything). The
+-- setting is constant for the session, so parse it once and cache the result
+-- rather than re-parsing on every grid rebuild (i.e. every node selection).
+local gridDisplayFieldsParsed = false;
+local gridDisplayFieldsCache = nil;
+
+function GetGridDisplayFields()
+    if gridDisplayFieldsParsed then
+        return gridDisplayFieldsCache;
+    end
+    gridDisplayFieldsParsed = true;
+
+    if settings.GridDisplayFields == nil or settings.GridDisplayFields == "" then
+        return gridDisplayFieldsCache; -- nil: display everything
+    end
+
+    local fields = {};
+    for field in string.gmatch(settings.GridDisplayFields, "[^,]+") do
+        local trimmed = field:gsub("^%s*(.-)%s*$", "%1");
+        if trimmed ~= "" then
+            fields[#fields + 1] = trimmed;
+        end
+    end
+
+    if #fields > 0 then
+        gridDisplayFieldsCache = fields;
+    end
+    return gridDisplayFieldsCache;
+end
+
+function ApplyAutoGrouping()
+    if not settings.AutoGroupResults then
+        return;
+    end
+    local groupColumn = gridColumns[settings.AutoGroupField];
+    if groupColumn then
+        groupColumn:Group();
+    else
+        LogDebug("AutoGroupField '" .. tostring(settings.AutoGroupField) .. "' is not a grid column. Skipping grouping.");
+    end
 end
 
 function AlwaysTrue()
@@ -405,6 +485,15 @@ function ItemsGridFocusedRowChanged(sender, args)
     end;
 end
 
+-- Re-enables Import Instance when the grid still has a focused row. The
+-- focused-row event above only fires when the focused row CHANGES, so a
+-- blanket disable (the double-click guard in ImportCitation_Clicked) would
+-- otherwise leave the button dead until the staff select a different row.
+function SetInstanceImportButtonEnabledFromGrid()
+    local focusedRow = catalogSearchForm.Grid.GridControl.MainView:GetFocusedRow();
+    catalogSearchForm.ImportInstanceButton.BarButton.Enabled = (focusedRow ~= nil);
+end
+
 function SetImportButtonsDisabled()
     catalogSearchForm.ImportInstanceButton.BarButton.Enabled = false;
     catalogSearchForm.ImportCitationButton.BarButton.Enabled = false;
@@ -412,9 +501,157 @@ end
 
 function ResetDataGrid()
     if(catalogSearchForm.Grid.GridControl.DataSource) then
-        catalogSearchForm.Grid.GridControl.DataSource = CreateItemsTable();
+        local emptyTable = CreateItemsTable({});
+        catalogSearchForm.Grid.GridControl.DataSource = emptyTable;
+        BuildGridColumnsFromTable(emptyTable);
         catalogSearchForm.Grid.GridControl.Enabled = false;
     end
+end
+
+function GetPluginEndpointUrl(recordUri)
+    local repoId, recordId;
+
+    repoId, recordId = string.match(recordUri, "repositories/(%d+)/archival_objects/(%d+)");
+    if repoId and recordId then
+        return "/repositories/" .. repoId .. "/aeon/archival_objects/" .. recordId;
+    end
+
+    repoId, recordId = string.match(recordUri, "repositories/(%d+)/resources/(%d+)");
+    if repoId and recordId then
+        return "/repositories/" .. repoId .. "/aeon/resources/" .. recordId;
+    end
+
+    repoId, recordId = string.match(recordUri, "repositories/(%d+)/accessions/(%d+)");
+    if repoId and recordId then
+        return "/repositories/" .. repoId .. "/aeon/accessions/" .. recordId;
+    end
+
+    repoId, recordId = string.match(recordUri, "repositories/(%d+)/digital_objects/(%d+)");
+    if repoId and recordId then
+        return "/repositories/" .. repoId .. "/aeon/digital_objects/" .. recordId;
+    end
+
+    return nil;
+end
+
+-- The plugin keeps a fully independent mapping set per consumer (configured
+-- in the ArchivesSpace staff UI under Plug-ins -> Aeon Mapping), restoring
+-- the separate instance/citation import configurability the pre-4.0 addon
+-- had via its InstanceDataImport/CitationDataImport tables. Every data call
+-- must name its consumer; the plugin rejects requests without one (400).
+local INSTANCE_IMPORT_CONSUMER = "aspace_client_addon_instance_import";
+local CITATION_IMPORT_CONSUMER = "aspace_client_addon_citation_import";
+
+-- consumer: which of the plugin's mapping sets to apply (required — one of
+-- the constants above).
+-- includeInstances: instance/container data is opt-in on the plugin's
+-- endpoints. Grid-population calls request it (with digital-object
+-- instances); citation-import calls omit it and get only `fields`.
+function GetPluginData(sessionId, recordUri, consumer, includeInstances)
+    -- The plugin rejects requests without a consumer (400), and a nil here
+    -- would otherwise surface as a raw concatenation error below. Fail with
+    -- a clear log line instead so a future call site can't forget it.
+    if consumer == nil or consumer == "" then
+        LogDebug("GetPluginData called without a consumer key. No request was made.");
+        return nil;
+    end
+
+    local pluginUrl = GetPluginEndpointUrl(recordUri);
+    if pluginUrl == nil then
+        return nil;
+    end
+    pluginUrl = pluginUrl .. "?consumer=" .. consumer;
+    if includeInstances then
+        pluginUrl = pluginUrl .. "&include_instances=true&include_digital_objects=true";
+    end
+    return ArchivesSpaceGetRequest(sessionId, pluginUrl);
+end
+
+function IsValidAeonField(fieldName)
+    local customFieldName = fieldName:match("^CustomFields%.(.+)");
+    if customFieldName then
+        local success, _ = pcall(GetFieldValue, "Transaction.CustomFields", customFieldName);
+        return success;
+    end
+    local success, _ = pcall(GetFieldValue, "Transaction", fieldName);
+    return success;
+end
+
+function PopulateInstanceFieldsFromPlugin(availableData, instance)
+    if instance == nil then return end
+
+    for k, v in pairs(instance) do
+        if type(v) == "string" or type(v) == "number" or type(v) == "boolean" then
+            availableData[k] = tostring(v);
+        end
+    end
+end
+
+function CollectFieldNames(fields, instances)
+    local fieldSet = {};
+
+    if fields then
+        for k, _ in pairs(fields) do
+            fieldSet[k] = true;
+        end
+    end
+    if instances and instances ~= JsonParser.NIL then
+        for _, instance in ipairs(instances) do
+            for k, v in pairs(instance) do
+                if type(v) == "string" or type(v) == "number" or type(v) == "boolean" then
+                    fieldSet[k] = true;
+                end
+            end
+        end
+    end
+
+    local fieldNames = {};
+    for k, _ in pairs(fieldSet) do
+        fieldNames[#fieldNames + 1] = k;
+    end
+    -- Sort for a stable column order
+    table.sort(fieldNames);
+    return fieldNames;
+end
+
+-- Copies the plugin's record-level fields into a plain string map, dropping
+-- anything that isn't a scalar (string/number/boolean).
+function StringifyFields(fields)
+    local result = {};
+    if fields then
+        for k, v in pairs(fields) do
+            if type(v) == "string" or type(v) == "number" or type(v) == "boolean" then
+                result[k] = tostring(v);
+            end
+        end
+    end
+    return result;
+end
+
+-- Builds the grid from a plugin record payload and its resolved instance list:
+-- one row per instance with the record-level fields merged in (a fresh copy per
+-- row so values don't bleed between rows).
+function PopulateGridFromPluginData(pluginData, instances)
+    local recordFields = StringifyFields(pluginData.fields);
+
+    local itemsDataTable = CreateItemsTable(CollectFieldNames(pluginData.fields, instances));
+    catalogSearchForm.Grid.GridControl:BeginUpdate();
+
+    for _, instance in ipairs(instances) do
+        local rowData = {};
+        for k, v in pairs(recordFields) do
+            rowData[k] = v;
+        end
+        PopulateInstanceFieldsFromPlugin(rowData, instance);
+        AddRowToItemsTable(itemsDataTable, rowData);
+    end
+
+    catalogSearchForm.Grid.GridControl.DataSource = itemsDataTable;
+    BuildGridColumnsFromTable(itemsDataTable);
+    catalogSearchForm.Grid.GridControl:EndUpdate();
+
+    catalogSearchForm.Grid.GridControl.Enabled = true;
+    ApplyAutoGrouping();
 end
 
 function PopulateDataGrid()
@@ -423,78 +660,74 @@ function PopulateDataGrid()
     if (string.match(currentRecordUri, HostAppInfo.PageUri["ArchivalObject"])) then
 
         local sessionId = GetSessionId();
-        local archivalObject = GetArchivalObject(sessionId, currentRecordUri);
-        local collectionUri = ExtractSubproperty(archivalObject, "resource", "ref");
-        local collection = ArchivesSpaceGetRequest(sessionId, collectionUri);
-        local instances = {};
+        local pluginData = GetPluginData(sessionId, currentRecordUri, INSTANCE_IMPORT_CONSUMER, true);
 
-        if archivalObject and archivalObject.instances and (archivalObject.instances ~= JsonParser.NIL) and (#archivalObject.instances > 0) then
-            LogDebug("Mapping Archival Object instances");
-            instances = archivalObject.instances;
-        elseif collection and collection.instances and (collection.instances ~= JsonParser.NIL) and (#collection.instances > 0) then
-            LogDebug("Archival Object has no instances. Mapping Resource instances.");
-            instances = collection.instances;
-        else
-            LogDebug("Neither the current Archival Object nor the current Resource have any instances.");
+        if pluginData == nil then
+            LogDebug("Could not retrieve plugin data.");
             return;
         end
 
-        local availableData = {};
-        availableData["ArchivalObjectTitle"] = ExtractProperty(archivalObject, "title");
-        availableData["ResourceTitle"] = ExtractProperty(collection, "title");
-        availableData["EadId"] = ExtractProperty(collection,"ead_id");
-        availableData["Creators"] = ExtractCreators(sessionId, collection);
+        local instances = pluginData.instances;
 
-        local itemsDataTable = CreateItemsTable();
-
-        catalogSearchForm.Grid.GridControl:BeginUpdate();
-
-        for _, archivalObjectInstance in ipairs(instances) do
-            
-            local topContainer = GetTopContainerFromAPI(sessionId, archivalObjectInstance);
-            local digitalObject = GetDigitalObjectFromAPI(sessionId, archivalObjectInstance);
-
-            availableData["ArchivalObjectInstance"] = ExtractArchivalObjectInstanceTitle(archivalObjectInstance, topContainer, digitalObject);
-            availableData["ArchivalObjectInstanceBarcode"] = ExtractArchivalObjectInstanceBarcode(topContainer, digitalObject);
-
-            local topContainerHasContainerLocations = (
-                topContainer and
-                topContainer.container_locations and
-                topContainer.container_locations ~= JsonParser.NIL and
-                (#topContainer.container_locations > 0)
-            )
-
-            if topContainerHasContainerLocations then
-                for _, containerLocation in ipairs(topContainer.container_locations) do
-                    local location = ArchivesSpaceGetRequest(sessionId, containerLocation.ref);
-                    availableData["ArchivalObjectContainerLocation"] = location.title;
-                    AddRowToItemsTable(itemsDataTable, availableData);
+        -- Fallback to resource instances if the AO has none
+        if instances == nil or instances == JsonParser.NIL or #instances == 0 then
+            LogDebug("Archival Object has no instances. Checking parent resource.");
+            local archivalObject = ArchivesSpaceGetRequest(sessionId, currentRecordUri);
+            local resourceUri = ExtractSubproperty(archivalObject, "resource", "ref");
+            if resourceUri then
+                local resourcePluginData = GetPluginData(sessionId, resourceUri, INSTANCE_IMPORT_CONSUMER, true);
+                if resourcePluginData and resourcePluginData.instances and
+                   resourcePluginData.instances ~= JsonParser.NIL and #resourcePluginData.instances > 0 then
+                    LogDebug("Using Resource instances.");
+                    instances = resourcePluginData.instances;
                 end
-            else
-                availableData["ArchivalObjectContainerLocation"] = "";
-                AddRowToItemsTable(itemsDataTable, availableData);
             end
         end
 
-        catalogSearchForm.Grid.GridControl.DataSource = itemsDataTable;
-        catalogSearchForm.Grid.GridControl:EndUpdate();
-
-        catalogSearchForm.Grid.GridControl.Enabled = true;
-        if settings.AutoGroupResults then
-            gridColumns["Volume"]:Group();
+        if instances == nil or instances == JsonParser.NIL or #instances == 0 then
+            LogDebug("Neither the current Archival Object nor the parent Resource have any instances.");
+            return;
         end
+
+        PopulateGridFromPluginData(pluginData, instances);
+
+    elseif (string.match(currentRecordUri, HostAppInfo.PageUri["Accession"])) then
+
+        local sessionId = GetSessionId();
+        local pluginData = GetPluginData(sessionId, currentRecordUri, INSTANCE_IMPORT_CONSUMER, true);
+
+        if pluginData == nil then
+            LogDebug("Could not retrieve plugin data.");
+            return;
+        end
+
+        local instances = pluginData.instances;
+        if instances == nil or instances == JsonParser.NIL or #instances == 0 then
+            LogDebug("Accession has no instances.");
+            return;
+        end
+
+        PopulateGridFromPluginData(pluginData, instances);
     end
 end
 
 function AddRowToItemsTable(itemsDataTable, availableData)
+    -- Records can differ in which fields the plugin returns, so make sure
+    -- every field has a column
+    for fieldName, _ in pairs(availableData) do
+        if not itemsDataTable.Columns:Contains(fieldName) then
+            itemsDataTable.Columns:Add(fieldName);
+        end
+    end
+
     local itemRow = itemsDataTable:NewRow();
-    itemRow:set_Item(HostAppInfo.InstanceDataImport["Title"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["Title"].AspaceData]);
-    itemRow:set_Item(HostAppInfo.InstanceDataImport["SubTitle"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["SubTitle"].AspaceData]);
-    itemRow:set_Item(HostAppInfo.InstanceDataImport["CallNumber"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["CallNumber"].AspaceData]);
-    itemRow:set_Item(HostAppInfo.InstanceDataImport["Author"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["Author"].AspaceData]);
-    itemRow:set_Item(HostAppInfo.InstanceDataImport["Volume"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["Volume"].AspaceData]);
-    itemRow:set_Item(HostAppInfo.InstanceDataImport["Barcode"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["Barcode"].AspaceData]);
-    itemRow:set_Item(HostAppInfo.InstanceDataImport["Location"].ItemGridColumn, availableData[HostAppInfo.InstanceDataImport["Location"].AspaceData]);
+    for i = 0, itemsDataTable.Columns.Count - 1 do
+        local colName = itemsDataTable.Columns[i].ColumnName;
+        local value = availableData[colName];
+        if value ~= nil then
+            itemRow:set_Item(colName, tostring(value));
+        end
+    end
     itemsDataTable.Rows:Add(itemRow);
 end
 
@@ -506,10 +739,17 @@ function ImportInstance_Clicked()
         return;
     end
 
-    for _, target in pairs(HostAppInfo.InstanceDataImport) do
-        if(importRow:get_Item(target.ItemGridColumn)) then
-            LogDebug(target.ItemGridColumn .. ": " .. importRow:get_Item(target.ItemGridColumn));
-            ImportField(target.AeonField, importRow:get_Item(target.ItemGridColumn), target.FieldLength);
+    local dataTable = catalogSearchForm.Grid.GridControl.DataSource;
+    for i = 0, dataTable.Columns.Count - 1 do
+        local columnName = dataTable.Columns[i].ColumnName;
+        local value = importRow:get_Item(columnName);
+        if value ~= nil and tostring(value) ~= "" and value ~= types["System.DBNull"].Value then
+            if IsValidAeonField(columnName) then
+                LogDebug(columnName .. ": " .. tostring(value));
+                ImportField(columnName, tostring(value));
+            else
+                LogDebug("Skipping field '" .. columnName .. "': not a valid Aeon transaction field.");
+            end
         end
     end
 
@@ -521,129 +761,29 @@ function ImportCitation_Clicked()
     SetImportButtonsDisabled();
 
     local sessionId = GetSessionId();
-    local collection = ArchivesSpaceGetRequest(sessionId, currentRecordUri);
-    local jsonModelType = ExtractProperty(collection, "jsonmodel_type");
-    LogDebug("Json Model Type: ".. jsonModelType);
-    local availableData = {};
-    local mappings = {};
+    local pluginData = GetPluginData(sessionId, currentRecordUri, CITATION_IMPORT_CONSUMER);
 
-    if(jsonModelType == "resource") then
-        availableData = ExtractResourceCitation(sessionId, collection);
-        mappings = HostAppInfo.CitationDataImport["Resource"];
-
-    elseif(jsonModelType == "accession") then
-        availableData = ExtractAccessionCitation(sessionId, collection);
-        mappings = HostAppInfo.CitationDataImport["Accession"];
-
-    elseif(jsonModelType == "digital_object") then
-        availableData = ExtractDigitalObjectCitation(sessionId, collection);
-        mappings = HostAppInfo.CitationDataImport["DigitalObject"];
-
-    else
-        ReportError("Addon Recieved Invalid Object Type");
-    end
-
-    for _, target in pairs(mappings) do
-        if availableData[target.AspaceData] then
-            LogDebug(target.AspaceData .. ": " .. availableData[target.AspaceData]);
-            ImportField(target.AeonField, availableData[target.AspaceData], target.FieldLength);
-        else
-            LogDebug("Could not import " .. target.AspaceData);
+    -- Import every field the plugin returns — the plugin's citation-import
+    -- mapping rules (configurable in the ArchivesSpace staff UI) decide what
+    -- maps to what; the addon just delivers the values.
+    if pluginData ~= nil and pluginData.fields ~= nil then
+        for fieldName, value in pairs(pluginData.fields) do
+            if value ~= nil and value ~= JsonParser.NIL and tostring(value) ~= "" then
+                if IsValidAeonField(fieldName) then
+                    LogDebug(fieldName .. ": " .. tostring(value));
+                    ImportField(fieldName, tostring(value));
+                else
+                    LogDebug("Skipping citation field '" .. fieldName .. "': not a valid Aeon transaction field.");
+                end
+            end
         end
+    else
+        LogDebug("Could not retrieve plugin data for citation import.");
     end
 
     SetCitationImportButtonsEnabled();
+    SetInstanceImportButtonEnabledFromGrid();
     SwitchToDetailsTab();
-end
-
-function ExtractResourceCitation(sessionId, json)
-    local availableData = {};
-    availableData["Title"] = ExtractProperty(json, "title");
-    availableData["Creators"] = ExtractCreators(sessionId, json);
-    availableData["CreatedBy"] = ExtractProperty(json, "created_by");
-    availableData["FindingAidTitle"] = ExtractProperty(json, "finding_aid_title");
-    availableData["EadId"] = ExtractProperty(json, "ead_id");
-    local dates = ExtractProperty(json, "dates");
-    availableData["DateExpression"] = ExtractProperty(dates[1], "expression");
-
-    return availableData;
-end
-
-function ExtractAccessionCitation(sessionId, json)
-    local availableData = {};
-    availableData["Title"] = ExtractProperty(json, "title");
-    availableData["DisplayString"] = ExtractProperty(json, "display_string");
-    availableData["AccessionDate"] = ExtractProperty(json, "accession_date");
-    availableData["CreatedBy"] = ExtractProperty(json, "created_by");
-    local dates = ExtractProperty(json, "dates");
-    availableData["DateExpression"] = ExtractProperty(dates[1], "expression");
-
-    return availableData;
-end
-
-function ExtractDigitalObjectCitation(sessionId, json)
-    local availableData = {};
-    availableData["Title"] = ExtractProperty(json, "title");
-    availableData["Creators"] = ExtractCreators(sessionId, json);
-    availableData["CreatedBy"] = ExtractProperty(json, "created_by");
-    availableData["DigitalObjectId"] = ExtractProperty(json, "digital_object_id");
-    local dates = ExtractProperty(json, "dates");
-    availableData["DateExpression"] = ExtractProperty(dates[1], "expression");
-    availableData["FileUri"] = ExtractProperty(json, "file_uri");
-
-    return availableData;
-end
-
-function GetTopContainerFromAPI(sessionId, archivalObjectInstance)
-    if (archivalObjectInstance.sub_container ~= nil and archivalObjectInstance.sub_container ~= JsonParser.NIL) then
-        local topContainerUri = archivalObjectInstance.sub_container.top_container.ref;
-        local topContainer = ArchivesSpaceGetRequest(sessionId, topContainerUri);
-        return topContainer
-    end
-
-    return nil
-end
-
-function GetDigitalObjectFromAPI(sessionId, archivalObjectInstance)
-    if (archivalObjectInstance.digital_object ~= nil and archivalObjectInstance.digital_object ~= JsonParser.NIL) then
-        local digitalObjectUri = archivalObjectInstance.digital_object.ref;
-        local digitalObject = ArchivesSpaceGetRequest(sessionId, digitalObjectUri);
-        return digitalObject
-    end
-
-    return nil
-end
-
-function ExtractArchivalObjectInstanceTitle(archivalObjectInstance, topContainer, digitalObject)
-    local container = "";
-
-    if (archivalObjectInstance.container ~= nil and archivalObjectInstance.container ~= JsonParser.NIL) then
-        if (archivalObjectInstance.container.type_1 ~= nil and archivalObjectInstance.container.type_1 ~= JsonParser.NIL) then
-            container = container .. archivalObjectInstance.container.type_1 .. " " .. archivalObjectInstance.container.indicator_1;
-        end
-
-        if (archivalObjectInstance.container.type_2 ~= nil and archivalObjectInstance.container.type_2 ~= JsonParser.NIL) then
-            container = container .. ', ' .. archivalObjectInstance.container.type_2 .. " " .. archivalObjectInstance.container.indicator_2;
-        end
-    elseif (topContainer) then
-        container = topContainer.long_display_string;
-    elseif (digitalObject) then
-        container = digitalObject.title;
-    end
-
-    return container;
-end
-
-function ExtractArchivalObjectInstanceBarcode(topContainer, digitalObject)
-    local barcode = "";
-
-    if topContainer and topContainer.barcode then
-        barcode = topContainer.barcode;
-    elseif digitalObject and digitalObject.digital_object_id then
-        barcode = digitalObject.digital_object_id;
-    end
-
-    return barcode;
 end
 
 function ExtractProperty(object, propery)
@@ -656,38 +796,6 @@ function ExtractSubproperty(object, property, subproperty)
     if subproperty then
         local prop = ExtractProperty(object, property);
         return EmptyStringIfNil(prop[subproperty]);
-    end
-end
-
-function ExtractCreators(sessionId, collection)
-    if sessionId and collection then
-    --Determine the creator(s) of the collection by following the agent links
-        local creators = "";
-        for _, v in ipairs(collection.linked_agents) do
-            if (EmptyStringIfNil(v.role) == "creator") then
-                local creatorRecord = ArchivesSpaceGetRequest(sessionId, v.ref);
-                if (#creatorRecord.names > 0) then
-                    local creatorName = ExtractCreatorName(creatorRecord);
-
-                    if (creatorName ~= "") then
-                        if (string.len(creators) > 0) then
-                            creators = creators .. "; ";
-                        end
-                        creators = creators .. creatorName;
-                    end
-                end
-            end
-        end
-        LogDebug("Creators = " .. creators);
-        return creators;
-    end
-end
-
-function ExtractCreatorName(creatorRecord)
-    if creatorRecord then
-        local creatorName = EmptyStringIfNil(creatorRecord.names[1].primary_name);
-        LogDebug("Creator Name = " .. creatorName);
-        return creatorName;
     end
 end
 
@@ -715,18 +823,6 @@ function GetSessionId()
     return sessionId;
 end
 
-function GetArchivalObject(sessionId, archivalObjectUri)
-    local archivalObject = ArchivesSpaceGetRequest(sessionId, archivalObjectUri);
-
-    if (archivalObject == nil or
-        archivalObject.resource == nil or archivalObject.resource == JsonParser.NIL or
-        archivalObject.resource.ref == nil or archivalObject.resource.ref == JsonParser.NIL) then
-        ReportError("There is no reference to this object's collection.");
-    end
-
-    return archivalObject;
-end
-
 function ArchivesSpaceGetRequest(sessionId, uri)
     local response = nil;
 
@@ -743,9 +839,33 @@ function ArchivesSpaceGetRequest(sessionId, uri)
     return response;
 end
 
-function ImportField(target, fieldValue, targetSize)
+-- Aeon system-level fields the plugin merges into every record. The addon
+-- deliberately does not import them: they identify the source system and, for
+-- Site, drive request routing — overwriting them from an ArchivesSpace record
+-- was never requested (work item 35989) and could misroute the transaction.
+local SYSTEM_FIELDS_NOT_IMPORTED = {
+    SystemID = true,
+    Site = true,
+    ReturnLinkURL = true,
+    ReturnLinkSystemName = true,
+};
+
+-- Over-length values are not truncated here. If a value exceeds its Aeon column
+-- length, the client's SetFieldValue silently fails to set the field (the
+-- underlying error is caught and logged, not raised), so we rely on the plugin's
+-- per-field max_length to keep values within range.
+function ImportField(target, fieldValue)
+    if SYSTEM_FIELDS_NOT_IMPORTED[target] then
+        return;
+    end
+
     if ((fieldValue ~= nil) and (fieldValue ~= "") and (fieldValue ~= types["System.DBNull"].Value)) then
-        SetFieldValue("Transaction", target, Truncate(fieldValue, targetSize));
+        local shortName = target:match("^CustomFields%.(.+)");
+        if shortName then
+            SetFieldValue("Transaction.CustomFields", shortName, fieldValue);
+        else
+            SetFieldValue("Transaction", target, fieldValue);
+        end
     end
 end
 
@@ -827,6 +947,123 @@ function NavigateToLogin()
     catalogSearchForm.Browser:Navigate(loginUrl);
 end
 
+function SetDefaultRepository()
+    -- ArchivesSpace already selects a repository on login, so we only override
+    -- it when the staff explicitly configured a default. Every path through
+    -- this function sets defaultRepositoryHandled, and a started switch also
+    -- sets defaultRepositorySelected; ReadyForAutoSearch reads both.
+    if (settings.DefaultRepositoryId == nil or settings.DefaultRepositoryId == "") then
+        LogDebug("No default repository configured. Leaving the ArchivesSpace default in place.");
+        defaultRepositoryHandled = true;
+        return;
+    end
+
+    if (not string.match(settings.DefaultRepositoryId, "^%d+$")) then
+        LogDebug("DefaultRepositoryId '" .. settings.DefaultRepositoryId .. "' is not a valid numeric repository ID. Leaving the ArchivesSpace default in place.");
+        defaultRepositoryHandled = true;
+        return;
+    end
+
+    -- Only select the repository if it's actually one of the options available
+    -- to this user; setting a missing/invalid value would clear the selection
+    -- and error out. EvaluateScript returns a status we can log on this side.
+    local setDefaultRepositoryScript = [[
+        (function() {
+            var repositoryIdSelect = document.getElementById('id');
+            if (!repositoryIdSelect) {
+                return 'no-select';
+            }
+
+            var hasOption = false;
+            for (var i = 0; i < repositoryIdSelect.options.length; i++) {
+                if (repositoryIdSelect.options[i].value === ']] .. settings.DefaultRepositoryId .. [[') {
+                    hasOption = true;
+                    break;
+                }
+            }
+            if (!hasOption) {
+                return 'not-found';
+            }
+
+            repositoryIdSelect.value = ']] .. settings.DefaultRepositoryId .. [[';
+
+            var setRepositoryButton = document.evaluate('(//button[text()="Select Repository"])[2]', document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+            if (!setRepositoryButton) {
+                return 'no-button';
+            }
+
+            setRepositoryButton.click();
+            return 'ok';
+        })()
+    ]];
+
+    local jsResult = catalogSearchForm.Browser:EvaluateScript(setDefaultRepositoryScript);
+    if (not jsResult.Success) then
+        LogDebug("Error evaluating the default-repository script: " .. tostring(jsResult.Message));
+        defaultRepositoryHandled = true;
+        return;
+    end
+
+    local status = jsResult.Result;
+    if (status == "ok") then
+        LogDebug("Set default repository to repository ID " .. settings.DefaultRepositoryId);
+        defaultRepositorySelected = true;
+    elseif (status == "not-found") then
+        LogDebug("Configured default repository ID " .. settings.DefaultRepositoryId .. " is not an available repository. Leaving the ArchivesSpace default in place.");
+    elseif (status == "no-select") then
+        LogDebug("Could not find the repository selector to set default repository ID " .. settings.DefaultRepositoryId .. ".");
+    elseif (status == "no-button") then
+        LogDebug("Could not find the Select Repository button to set default repository ID " .. settings.DefaultRepositoryId .. ".");
+    end
+
+    defaultRepositoryHandled = true;
+end
+
+-- Match function for the AutoSearchAfterLogin page handler. All critical page
+-- handlers run in the same page-load check, in registration order, and the
+-- check does not stop after a handler executes (see
+-- WebView2Browser.CheckHandlerQueueTask in AtlasSystems.Scripting). Matching
+-- on IsSignedIn alone would start the auto search in the same check that
+-- SetDefaultRepository starts the repository switch, and the two navigations
+-- would race. A false match keeps the handler registered for later page
+-- loads, so this waits until the switch has completed or was never started.
+function ReadyForAutoSearch()
+    if (not CheckIfUserSignedIn()) then
+        return false;
+    end
+
+    -- SetDefaultRepository registers first and runs earlier in the same
+    -- check, so this flag is already set on the first signed-in page load.
+    if (not defaultRepositoryHandled) then
+        return false;
+    end
+
+    -- A repository switch was started: wait for the post-switch page.
+    if (defaultRepositorySelected) then
+        return CurrentRepositoryMatchesDefault();
+    end
+
+    return true;
+end
+
+function CurrentRepositoryMatchesDefault()
+    local jsResult = catalogSearchForm.Browser:EvaluateScript([[
+        (function() {
+            var repositoryLink = document.querySelector('.repo-container > .btn-group > a[href*="/repositories/"]');
+            if (!repositoryLink) { return ''; }
+            var match = /\/repositories\/(\d+)/.exec(repositoryLink.href);
+            return match ? match[1] : '';
+        })()
+    ]]);
+
+    if (not jsResult.Success) then
+        LogDebug("Error reading the current repository: " .. tostring(jsResult.Message));
+        return false;
+    end
+
+    return tostring(jsResult.Result) == settings.DefaultRepositoryId;
+end
+
 function AutoSearchAfterLogin()
     LogDebug("Checking if we need to autosearch");
     
@@ -883,21 +1120,6 @@ function PerformLogin()
     ]];
 
     catalogSearchForm.Browser:ExecuteScript(loginScript, { settings.Username, settings.Password } );
-end
-
-function Truncate(value, size)
-    if size == nil then
-        LogDebug("Size was nil. Truncating to 50 characters");
-        size = 50;
-    end
-
-    if ((value == nil) or (value == "")) then
-        LogDebug("Value was nil or empty. Skipping truncation.");
-        return value;
-    else
-        LogDebug("Truncating to " .. size .. " characters: " .. value);
-        return string.sub(value, 0, size);
-    end
 end
 
 function SwitchToDetailsTab()
