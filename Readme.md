@@ -2,6 +2,28 @@
 
 ## Version
 
+- 4.1.0:
+    - The results grid now shows the instances of the selected record and of
+      every record beneath it, in tree order, through the Data Handler
+      plugin's subtree endpoint (plugin 2.1.0 or later required). This
+      replaces the old fallback to the collection record's instances.
+    - Added the `instance_kind` and `record_title` grid columns: whether a
+      row is a Container or a Digital Object, and which record it belongs
+      to. Display-only; they are never imported. They are in the default
+      `GridDisplayFields` list. A site that changed that setting keeps its
+      own list on upgrade, so add `instance_kind, record_title` to it.
+    - `GridDisplayFields` and `AutoGroupField` entries now ignore letter
+      case, so `ItemSubTitle` and `ItemSubtitle` both match.
+    - Import Citation is now available on archival object records.
+    - Resources with instances (including digital objects) now offer Import
+      Instance.
+    - An accession with instances offers Import Instance only; accessions
+      without instances offer Import Citation only.
+    - On ArchivesSpace 4.2 and later, the grid fills for the first record
+      opened even when the tree loads slowly (for example, right after a
+      server restart). The addon used to stop waiting after 5 seconds.
+    - Selecting an archival object without instances in the ArchivesSpace
+      4.2 edit view no longer shows a "(404) Not Found" error.
 - 4.0.0:
     - All ArchivesSpace-to-Aeon field mapping is now handled by the companion
       **ArchivesSpace Data Handler plugin**, which must be installed on the
@@ -46,7 +68,7 @@
 ## Summary
 This addon is used to integrate the ArchivesSpace staff interface into the Aeon Client request form so that staff can search the records of their ArchivesSpace instance and import details into Aeon requests.
 
-The addon supports ArchivesSpace v2.8.0 and later, and as of version 4.0.0 it requires the **ArchivesSpace Data Handler plugin** (version 2.0.0 or later) to be installed on the ArchivesSpace server. The plugin returns record data already mapped to Aeon field names; all field mapping is configured there (in the ArchivesSpace staff interface under Plug-ins → Aeon Mapping), not in the addon. The addon uses two of the plugin's mapping applications, each configurable independently in that UI: **ArchivesSpace Client Addon — Instance Import** (key `aspace_client_addon_instance_import`) for the container/instance grid, and **ArchivesSpace Client Addon — Citation Import** (key `aspace_client_addon_citation_import`) for the Import Citation button. The display names are editable in the plugin, but the keys are fixed. They are what the addon sends on every data call, and what the plugin's error messages name during troubleshooting.
+The addon supports ArchivesSpace v2.8.0 and later, and as of version 4.1.0 it requires the **ArchivesSpace Data Handler plugin** (version 2.1.0 or later) to be installed on the ArchivesSpace server. The plugin returns record data already mapped to Aeon field names; all field mapping is configured there (in the ArchivesSpace staff interface under Plug-ins → Aeon Mapping), not in the addon. The addon uses two of the plugin's mapping applications, each configurable independently in that UI: **ArchivesSpace Client Addon: Instance Import** (key `aspace_client_addon_instance_import`) for the container/instance grid, and **ArchivesSpace Client Addon: Citation Import** (key `aspace_client_addon_citation_import`) for the Import Citation button. The display names are editable in the plugin, but the keys are fixed. They are what the addon sends on every data call, and what the plugin's error messages name during troubleshooting.
 
 ## Installation
 This addon requires two Lua libraries that are included in the distribution.
@@ -93,13 +115,13 @@ Specifies whether the results grid should be grouped automatically by the field 
 
 ### AutoGroupField
 
-The Aeon field (as returned by the ArchivesSpace Data Handler plugin) to group the results grid by when `AutoGroupResults` is enabled. Must also be listed in `GridDisplayFields` (when that setting is used). The default, `ItemVolume`, holds the instance's top container display string or digital object title under the plugin's default mappings.
+The Aeon field (as returned by the ArchivesSpace Data Handler plugin) to group the results grid by when `AutoGroupResults` is enabled. Must also be listed in `GridDisplayFields` (when that setting is used). The default, `ItemVolume`, holds the instance's container label (for example "Box 1") or digital object title under the plugin's default mappings.
 
 ### GridDisplayFields
 
-A comma-separated list of the fields (as returned by the ArchivesSpace Data Handler plugin) to display as columns in the results grid, in order. Fields not listed are still imported when a row is imported; they just aren't displayed. Leave blank to display every returned field.
+A comma-separated list of the fields (as returned by the ArchivesSpace Data Handler plugin) to display as columns in the results grid, in order. Fields not listed are still imported when a row is imported; they just aren't displayed. Leave blank to display every returned field. Two display-only columns come from the addon rather than the mapping rules: `instance_kind` says whether the row is a Container or a Digital Object, and `record_title` names the record the row belongs to. Both are in the default list, and neither is imported.
 
-Default value: `ItemTitle, CallNumber, ItemSubtitle, ItemAuthor, ItemVolume, ItemNumber, Location`
+Default value: `instance_kind, record_title, ItemTitle, CallNumber, ItemSubtitle, ItemAuthor, ItemVolume, ItemNumber, Location`
 
 ### DefaultRepositoryId
 
@@ -109,8 +131,8 @@ The numeric ID of the ArchivesSpace repository to select by default after signin
 
 All ArchivesSpace-to-Aeon field mapping is configured in the **ArchivesSpace Data Handler plugin**, in the ArchivesSpace staff interface under **Plug-ins → Aeon Mapping**. The addon imports every field the plugin returns:
 
-- **Citation import** imports the record-level fields for the resource, accession, or digital object being viewed.
-- **Instance import** shows one grid row per container or digital-object instance (record-level fields plus per-instance fields) and imports the selected row — including fields not displayed in the grid. Grid columns are created dynamically from the returned fields (filtered and ordered by the `GridDisplayFields` setting), with the field names as captions.
+- **Citation import** imports the record-level fields for the archival object, resource, accession, or digital object being viewed.
+- **Instance import** shows one grid row per container or digital-object instance on the selected record and on every record beneath it, in tree order (the plugin walks the tree server-side in a single request). Each row carries its own record's fields plus the per-instance fields, and importing the selected row imports all of them — including fields not displayed in the grid. Grid columns are created dynamically from the returned fields (filtered and ordered by the `GridDisplayFields` setting), with the field names as captions.
 - A field mapped to an Aeon custom field (target name `CustomFields.YourShortName`) is imported into that custom field. Fields whose names don't match an Aeon transaction field or custom field are displayed in the grid but skipped on import.
 
 See the plugin's documentation for the default mappings and how to customize them per repository.
