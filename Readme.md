@@ -7,6 +7,21 @@
       every record beneath it, in tree order, through the Data Handler
       plugin's subtree endpoint (plugin 2.1.0 or later required). This
       replaces the old fallback to the collection record's instances.
+    - The grid no longer shows a parent's containers when the selected
+      record has none of its own. To see containers recorded on a higher
+      level, such as boxes listed on a series, select that level.
+    - When a collection has more rows than the plugin's limit (500 by
+      default, set on the ArchivesSpace server), a message says the grid
+      shows only the first rows. It appears once per collection.
+    - A "(404) Not Found" error from a Data Handler plugin request now says
+      why: the addon needs the plugin, or the addon's ArchivesSpace account
+      can't see the record (for example, a suppressed record that still
+      shows in the tree).
+    - When the addon can't sign in to the ArchivesSpace backend (for
+      example, a wrong ArchivesSpaceBackendURL), it follows the sign-in
+      error with a message that names the settings to check, and sends no
+      further requests. Before, it sent the request anyway and showed a
+      second, unrelated error.
     - Added the `instance_kind` and `record_title` grid columns: whether a
       row is a Container or a Digital Object, and which record it belongs
       to. Display-only; they are never imported. They are in the default
@@ -131,8 +146,8 @@ The numeric ID of the ArchivesSpace repository to select by default after signin
 
 All ArchivesSpace-to-Aeon field mapping is configured in the **ArchivesSpace Data Handler plugin**, in the ArchivesSpace staff interface under **Plug-ins → Aeon Mapping**. The addon imports every field the plugin returns:
 
-- **Citation import** imports the record-level fields for the archival object, resource, accession, or digital object being viewed.
-- **Instance import** shows one grid row per container or digital-object instance on the selected record and on every record beneath it, in tree order (the plugin walks the tree server-side in a single request). Each row carries its own record's fields plus the per-instance fields, and importing the selected row imports all of them — including fields not displayed in the grid. Grid columns are created dynamically from the returned fields (filtered and ordered by the `GridDisplayFields` setting), with the field names as captions.
+- **Citation import** imports the record-level fields for the archival object, resource, accession, or digital object being viewed. Resources offer both Import Citation and Import Instance. Accessions offer one or the other: Import Instance when the accession has instances, and Import Citation when it has none.
+- **Instance import** shows one grid row per container or digital-object instance on the selected record and on every record beneath it, in tree order (the plugin walks the tree server-side in a single request). It does not show a parent's containers: to see containers recorded on a higher level, such as boxes listed on a series, select that level in the tree. Each row carries its own record's fields plus the per-instance fields, and importing the selected row imports all of them — including fields not displayed in the grid. Grid columns are created dynamically from the returned fields (filtered and ordered by the `GridDisplayFields` setting), with the field names as captions.
 - A field mapped to an Aeon custom field (target name `CustomFields.YourShortName`) is imported into that custom field. Fields whose names don't match an Aeon transaction field or custom field are displayed in the grid but skipped on import.
 
 See the plugin's documentation for the default mappings and how to customize them per repository.

@@ -47,6 +47,11 @@ types["System.Data.DataTable"] = luanet.import_type("System.Data.DataTable");
 
 local currentRecordUri = "";
 
+-- The collection (the plugin's root_record_uri) whose cut-off grid staff were
+-- last warned about. The warning is a popup, so it shows once per
+-- collection rather than on every tree node selected inside it.
+local truncationWarnedRootUri = nil;
+
 local gridColumns = {};
 
 local performedAutoSearch = false;
@@ -113,9 +118,9 @@ local archiveSpaceAddonScript = [[
 
                 // Initial load: the tree renders asynchronously, so the current node
                 // may not be in the DOM yet. Watch the tree until it appears, then
-                // stop watching. No time limit: the first pages after a server
-                // restart can take longer than any fixed wait (a 5-second poll
-                // left the grid empty there).
+                // stop watching. The first pages after a server restart load
+                // slowly, and a 5-second poll left the grid empty there, so the
+                // watcher reacts to tree changes and allows 15 seconds.
                 var treeContainer = document.getElementById('infinite-tree-container');
                 if (treeContainer.querySelector('.node.current')) {
                     populateFromCurrentNode();
@@ -129,6 +134,11 @@ local archiveSpaceAddonScript = [[
                     // Watch for nodes being added and for the class change that
                     // marks a node as current.
                     treeObserver.observe(treeContainer, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+                    // Stop watching after 15 seconds so a tree that never
+                    // renders is not watched for the life of the page. A
+                    // node selected later still fills the grid through the
+                    // nodeSelect handler above.
+                    setTimeout(function() { treeObserver.disconnect(); }, 15000);
                 }
             }
             // The legacy AjaxTree renders the collection tree in ArchivesSpace
@@ -329,11 +339,12 @@ function BuildGridColumnsFromTable(itemsDataTable)
     if displayFields then
         for _, columnName in ipairs(displayFields) do
             -- Columns:Contains ignores letter case, but the grid binds a
-            -- column to its field letter for letter. Bind to the table's own
-            -- spelling so a setting entry like "ItemSubTitle" still shows the
-            -- plugin's "ItemSubtitle" values.
+            -- column to its field letter for letter. Use the table's own
+            -- spelling for the binding and the header, so a setting entry
+            -- like "itemsubtitle" still shows the plugin's "ItemSubtitle"
+            -- values under an "ItemSubtitle" header.
             if itemsDataTable.Columns:Contains(columnName) then
-                AddGridColumn(gridView, columnName, itemsDataTable.Columns[columnName].ColumnName);
+                AddGridColumn(gridView, itemsDataTable.Columns[columnName].ColumnName);
             elseif itemsDataTable.Columns.Count > 0 then
                 -- Only warn when the plugin actually returned fields but not
                 -- this one; an empty table means the grid is just being reset.
@@ -343,17 +354,16 @@ function BuildGridColumnsFromTable(itemsDataTable)
     else
         -- No display list configured — show every returned field
         for i = 0, itemsDataTable.Columns.Count - 1 do
-            local fieldName = itemsDataTable.Columns[i].ColumnName;
-            AddGridColumn(gridView, fieldName, fieldName);
+            AddGridColumn(gridView, itemsDataTable.Columns[i].ColumnName);
         end
     end
 end
 
--- caption: the name shown in the column header. fieldName: the data table
--- column the grid column reads from (exact spelling).
-function AddGridColumn(gridView, caption, fieldName)
+-- fieldName: the data table column's exact spelling. It is both the column
+-- header and the field the grid column reads from.
+function AddGridColumn(gridView, fieldName)
     local gridColumn = gridView.Columns:Add();
-    gridColumn.Caption = caption;
+    gridColumn.Caption = fieldName;
     gridColumn.FieldName = fieldName;
     gridColumn.Visible = true;
     gridColumn.OptionsColumn.ReadOnly = true;
@@ -570,6 +580,14 @@ end
 local INSTANCE_IMPORT_CONSUMER = "aspace_client_addon_instance_import";
 local CITATION_IMPORT_CONSUMER = "aspace_client_addon_citation_import";
 
+-- Added to a "(404) Not Found" error from a plugin endpoint, depending on
+-- what the 404 means (see GetNotFoundHint). The plugin installs separately
+-- from the addon, so its address can be missing. A record can also be
+-- hidden from the addon's account: ArchivesSpace lists suppressed records in
+-- the tree but refuses to load them for accounts that cannot see them.
+local PLUGIN_NOT_FOUND_HINT = "This addon needs the ArchivesSpace Data Handler plugin.";
+local RECORD_NOT_FOUND_HINT = "The addon's ArchivesSpace account can't see this record. It may be suppressed.";
+
 -- consumer: which of the plugin's mapping sets to apply (required — one of
 -- the constants above).
 -- includeInstances: instance/container data is opt-in on the plugin's record
@@ -592,7 +610,7 @@ function GetPluginData(sessionId, recordUri, consumer, includeInstances)
     if includeInstances then
         pluginUrl = pluginUrl .. "&include_instances=true&include_digital_objects=true";
     end
-    return ArchivesSpaceGetRequest(sessionId, pluginUrl);
+    return ArchivesSpaceGetRequest(sessionId, pluginUrl, true);
 end
 
 -- Fetches the grid rows for a record: one row per instance on the record and
@@ -606,7 +624,7 @@ function GetSubtreeInstances(sessionId, recordUri)
         return nil;
     end
     pluginUrl = pluginUrl .. "/subtree_instances?consumer=" .. INSTANCE_IMPORT_CONSUMER;
-    return ArchivesSpaceGetRequest(sessionId, pluginUrl);
+    return ArchivesSpaceGetRequest(sessionId, pluginUrl, true);
 end
 
 function IsValidAeonField(fieldName)
@@ -653,6 +671,10 @@ function PopulateGridFromSubtreeRows(rows)
         if row.record_title ~= nil and row.record_title ~= JsonParser.NIL then
             rowData["record_title"] = tostring(row.record_title);
         end
+        -- row.record_uri is not copied. A link to the row's own record reaches
+        -- Aeon through the plugin's default staff_url -> ItemCitation rule.
+        -- If a site turns that rule off, only record_title identifies the
+        -- row's record.
         flatRows[#flatRows + 1] = rowData;
         for k, _ in pairs(rowData) do
             fieldSet[k] = true;
@@ -696,7 +718,11 @@ function PopulateDataGrid()
     local sessionId = GetSessionId();
     local response = GetSubtreeInstances(sessionId, currentRecordUri);
 
-    if response == nil then
+    -- A failed request comes back as "" (the JSON parser's result for an
+    -- empty body), not nil. Stop here so an error isn't read as "no
+    -- instances", which would turn Import Citation on for a record the
+    -- addon can't load. NodeChanged already disabled both buttons.
+    if type(response) ~= "table" then
         LogDebug("Could not retrieve subtree instance data.");
         return;
     end
@@ -713,9 +739,18 @@ function PopulateDataGrid()
 
     if response.truncated == true then
         LogDebug("The plugin capped the instance rows. The grid shows the first " .. #rows .. ".");
-        -- Tell staff the grid is incomplete, so a missing box isn't read as
-        -- a box that doesn't exist.
-        interfaceMngr:ShowMessage("The grid shows the first " .. #rows .. " boxes and digital objects for this record and the records below it. Select a lower level in the tree to see the rest.", "ArchivesSpace Addon");
+        -- Tell staff the grid is incomplete, so a missing row isn't read as
+        -- a container that doesn't exist. When the plugin caps the rows,
+        -- #rows is its configured limit, so the count stays right if a site
+        -- changes the limit.
+        local rootUri = response.root_record_uri;
+        if rootUri == JsonParser.NIL then
+            rootUri = nil;
+        end
+        if rootUri == nil or rootUri ~= truncationWarnedRootUri then
+            truncationWarnedRootUri = rootUri;
+            interfaceMngr:ShowMessage("The grid shows the first " .. #rows .. " rows for this record and the records below it. Select a lower level in the tree to see the rest.", "ArchivesSpace Addon");
+        end
     end
 
     PopulateGridFromSubtreeRows(rows);
@@ -832,19 +867,25 @@ function GetSessionId()
 
     local sessionId = ExtractProperty(authentication, "session");
 
-    if (sessionId == nil or sessionId == JsonParser.NIL) then
-        ReportError("Unable to get valid session ID token.");
-        return;
+    -- ExtractProperty turns a missing value into "", so a failed sign-in
+    -- (for example, a wrong backend URL) arrives here as an empty string.
+    -- Returning nil stops the callers from sending requests without a
+    -- session.
+    if (sessionId == nil or sessionId == JsonParser.NIL or sessionId == "") then
+        ReportError("Unable to get valid session ID token. Check the ArchivesSpaceBackendURL, AS_Username, and AS_Password settings.");
+        return nil;
     end
 
     return sessionId;
 end
 
-function ArchivesSpaceGetRequest(sessionId, uri)
+-- isPluginRequest (optional): true for Data Handler plugin addresses, so a
+-- "(404) Not Found" error says whether the plugin or the record is missing.
+function ArchivesSpaceGetRequest(sessionId, uri, isPluginRequest)
     local response = nil;
 
     if sessionId and uri then
-        response =  JsonParser:ParseJSON(SendApiRequest(uri, 'GET', nil, sessionId));
+        response =  JsonParser:ParseJSON(SendApiRequest(uri, 'GET', nil, sessionId, isPluginRequest));
     else
         LogDebug("Session ID or URI was nil.")
     end
@@ -894,7 +935,7 @@ function EmptyStringIfNil(value)
     end
 end
 
-function SendApiRequest(apiPath, method, parameters, authToken)
+function SendApiRequest(apiPath, method, parameters, authToken, isPluginRequest)
     LogDebug('[SendApiRequest] ' .. method);
     LogDebug('apiPath: ' .. apiPath);
 
@@ -915,15 +956,17 @@ function SendApiRequest(apiPath, method, parameters, authToken)
         success, result = pcall(WebClientGet, webClient, apiPath);
     end
 
-    webClient:Dispose();
-
     if (success) then
+        webClient:Dispose();
         LogDebug("API call successful");
         LogDebug("Response: " .. result);
         return result;
     else
         LogDebug("API call error");
-        OnError(result);
+        -- OnError may read the error's response body, so it runs before the
+        -- client is disposed.
+        OnError(result, isPluginRequest);
+        webClient:Dispose();
         return "";
     end
 end
@@ -1174,7 +1217,7 @@ function ReportError(message)
     interfaceMngr:ShowMessage("An error occurred:\r\n" .. message, "ArchivesSpace Addon");
 end;
 
-function OnError(e)
+function OnError(e, isPluginRequest)
     LogDebug("[OnError]");
     if e == nil then
         LogDebug("OnError supplied a nil error");
@@ -1201,7 +1244,78 @@ function OnError(e)
         message = "Unspecified Error";
     end
 
+    -- "...(404) Not Found." becomes "...(404) Not Found - <hint>".
+    if isPluginRequest and string.find(message, "(404) Not Found", 1, true) then
+        local hint = GetNotFoundHint(e);
+        if hint then
+            message = string.gsub(message, "%(404%) Not Found%.?", "(404) Not Found - " .. hint, 1);
+        end
+    end
+
     ReportError(message);
+end
+
+-- Tells a missing plugin apart from a missing or hidden record by the 404
+-- response's body. ArchivesSpace answers an address that no installed code
+-- handles with {"error":"Sinatra::NotFound"}, and a record it cannot load
+-- with a different {"error": ...}. (Both are JSON with the same headers, so
+-- the body is the only difference.) Anything else, such as a proxy's own
+-- error page, or a body that can't be read, returns nil so the message stays
+-- a plain 404 rather than guessing.
+function GetNotFoundHint(e)
+    local body = ReadErrorResponseBody(e);
+    if body == nil then
+        return nil;
+    end
+    LogDebug("404 response body: " .. body);
+
+    if string.find(body, "Sinatra::NotFound", 1, true) then
+        return PLUGIN_NOT_FOUND_HINT;
+    elseif string.find(body, '"error"', 1, true) then
+        return RECORD_NOT_FOUND_HINT;
+    end
+    return nil;
+end
+
+-- Reads the body of the web response attached to a failed WebClient call.
+-- Returns nil when there is no response or it can't be read.
+function ReadErrorResponseBody(e)
+    local response = GetErrorResponse(e);
+    if response == nil then
+        return nil;
+    end
+
+    local success, body = pcall(function()
+        local reader = types["System.IO.StreamReader"](response:GetResponseStream());
+        local text = reader:ReadToEnd();
+        reader:Dispose();
+        return text;
+    end);
+    if success and body ~= nil then
+        return tostring(body);
+    end
+    return nil;
+end
+
+-- Finds the web response attached to a failed WebClient call. The .NET
+-- WebException carrying it is wrapped by the scripting host, so this walks
+-- the InnerException chain. Each property read is guarded because a missing
+-- member can throw (or come back as a string) through luanet.
+function GetErrorResponse(e)
+    local current = e;
+    while current ~= nil do
+        local success, response = pcall(function() return current.Response; end);
+        if success and response ~= nil and type(response) ~= "string" then
+            return response;
+        end
+
+        local innerSuccess, inner = pcall(function() return current.InnerException; end);
+        if not innerSuccess or type(inner) == "string" then
+            return nil;
+        end
+        current = inner;
+    end
+    return nil;
 end
 
 -- Recursively logs exception messages and returns the innermost message to caller
